@@ -38,9 +38,6 @@ from tf_agents.utils import nest_utils
 
 from tensorflow.python.util import nest  # pylint:disable=g-direct-tensorflow-import  # TF internal
 
-CONV_TYPE_2D = '2d'
-CONV_TYPE_1D = '1d'
-
 
 def _copy_layer(layer):
   """Create a copy of a Keras layer with identical parameters.
@@ -86,12 +83,10 @@ class EncodingNetwork(network.Network):
                fc_layer_params=None,
                dropout_layer_params=None,
                activation_fn=tf.keras.activations.relu,
-               weight_decay_params=None,
                kernel_initializer=None,
                batch_squash=True,
                dtype=tf.float32,
-               name='EncodingNetwork',
-               conv_type=CONV_TYPE_2D):
+               name='EncodingNetwork'):
     """Creates an instance of `EncodingNetwork`.
 
     Network supports calls with shape outer_rank + input_tensor_spec.shape. Note
@@ -164,9 +159,7 @@ class EncodingNetwork(network.Network):
         the fully connected layers; there is a dropout layer after each fully
         connected layer, except if the entry in the list is None. This list must
         have the same length of fc_layer_params, or be None.
-      activation_fn: Activation function, e.g. tf.keras.activations.relu.
-      weight_decay_params: Optional list of weight decay parameters for the
-        fully connected layers.
+      activation_fn: Activation function, e.g. tf.keras.activations.relu,.
       kernel_initializer: Initializer to use for the kernels of the conv and
         dense layers. If none is provided a default variance_scaling_initializer
       batch_squash: If True the outer_ranks of the observation are squashed into
@@ -174,8 +167,6 @@ class EncodingNetwork(network.Network):
         observations with shape [BxTx...].
       dtype: The dtype to use by the convolution and fully connected layers.
       name: A string representing name of the network.
-      conv_type: string, '1d' or '2d'. Convolution layers will be 1d or 2D
-        respectively
 
     Raises:
       ValueError: If any of `preprocessing_layers` is already built.
@@ -217,25 +208,17 @@ class EncodingNetwork(network.Network):
     layers = []
 
     if conv_layer_params:
-      if conv_type == '2d':
-        conv_layer_type = tf.keras.layers.Conv2D
-      elif conv_type == '1d':
-        conv_layer_type = tf.keras.layers.Conv1D
-      else:
-        raise ValueError('unsupported conv type of %s. Use 1d or 2d' % (
-            conv_type))
-
       for config in conv_layer_params:
         if len(config) == 4:
           (filters, kernel_size, strides, dilation_rate) = config
         elif len(config) == 3:
           (filters, kernel_size, strides) = config
-          dilation_rate = (1, 1) if conv_type == '2d' else (1,)
+          dilation_rate = (1, 1)
         else:
           raise ValueError(
               'only 3 or 4 elements permitted in conv_layer_params tuples')
         layers.append(
-            conv_layer_type(
+            tf.keras.layers.Conv2D(
                 filters=filters,
                 kernel_size=kernel_size,
                 strides=strides,
@@ -243,7 +226,7 @@ class EncodingNetwork(network.Network):
                 activation=activation_fn,
                 kernel_initializer=kernel_initializer,
                 dtype=dtype,
-                name='%s/conv%s' % (name, conv_type)))
+                name='%s/conv2d' % name))
 
     layers.append(tf.keras.layers.Flatten())
 
@@ -255,25 +238,13 @@ class EncodingNetwork(network.Network):
           raise ValueError('Dropout and fully connected layer parameter lists'
                            'have different lengths (%d vs. %d.)' %
                            (len(dropout_layer_params), len(fc_layer_params)))
-      if weight_decay_params is None:
-        weight_decay_params = [None] * len(fc_layer_params)
-      else:
-        if len(weight_decay_params) != len(fc_layer_params):
-          raise ValueError('Weight decay and fully connected layer parameter '
-                           'lists have different lengths (%d vs. %d.)' %
-                           (len(weight_decay_params), len(fc_layer_params)))
-
-      for num_units, dropout_params, weight_decay in zip(
-          fc_layer_params, dropout_layer_params, weight_decay_params):
-        kernal_regularizer = None
-        if weight_decay is not None:
-          kernal_regularizer = tf.keras.regularizers.l2(weight_decay)
+      for num_units, dropout_params in zip(fc_layer_params,
+                                           dropout_layer_params):
         layers.append(
             tf.keras.layers.Dense(
                 num_units,
                 activation=activation_fn,
                 kernel_initializer=kernel_initializer,
-                kernel_regularizer=kernal_regularizer,
                 dtype=dtype,
                 name='%s/dense' % name))
         if not isinstance(dropout_params, dict):
@@ -295,7 +266,7 @@ class EncodingNetwork(network.Network):
     self._postprocessing_layers = layers
     self._batch_squash = batch_squash
 
-  def call(self, observation, step_type=None, network_state=(), training=False):
+  def call(self, observation, step_type=None, network_state=()):
     del step_type  # unused.
 
     if self._batch_squash:
@@ -312,7 +283,7 @@ class EncodingNetwork(network.Network):
           nest.flatten_up_to(
               self._preprocessing_nest, observation, check_types=False),
           self._flat_preprocessing_layers):
-        processed.append(layer(obs, training=training))
+        processed.append(layer(obs))
       if len(processed) == 1 and self._preprocessing_combiner is None:
         # If only one observation is passed and the preprocessing_combiner
         # is unspecified, use the preprocessed version of this observation.
@@ -324,7 +295,7 @@ class EncodingNetwork(network.Network):
       states = self._preprocessing_combiner(states)
 
     for layer in self._postprocessing_layers:
-      states = layer(states, training=training)
+      states = layer(states)
 
     if self._batch_squash:
       states = tf.nest.map_structure(batch_squash.unflatten, states)

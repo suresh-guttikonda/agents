@@ -103,17 +103,20 @@ class BatchSquash(object):
       # pyformat: enable
 
 
-def mlp_layers(conv_layer_params=None,
+def mlp_layers(conv_1d_layer_params=None,
+               conv_2d_layer_params=None,
                fc_layer_params=None,
                dropout_layer_params=None,
                activation_fn=tf.keras.activations.relu,
                kernel_initializer=None,
-               weight_decay_params=None,
                name=None):
   """Generates conv and fc layers to encode into a hidden state.
 
   Args:
-    conv_layer_params: Optional list of convolution layers parameters, where
+    conv_1d_layer_params: Optional list of 1D convolution layers parameters, where
+      each item is a length-three tuple indicating (filters, kernel_size,
+      stride).
+    conv_2d_layer_params: Optional list of 2D convolution layers parameters, where
       each item is a length-three tuple indicating (filters, kernel_size,
       stride).
     fc_layer_params: Optional list of fully_connected parameters, where each
@@ -130,8 +133,6 @@ def mlp_layers(conv_layer_params=None,
     kernel_initializer: Initializer to use for the kernels of the conv and
       dense layers. If none is provided a default variance_scaling_initializer
       is used.
-    weight_decay_params: Optional list of weight decay params for the fully
-      connected layer.
     name: Name for the mlp layers.
 
   Returns:
@@ -147,7 +148,18 @@ def mlp_layers(conv_layer_params=None,
 
   layers = []
 
-  if conv_layer_params is not None:
+  if conv_1d_layer_params is not None:
+    layers.extend([
+        tf.keras.layers.Conv1D(
+            filters=filters,
+            kernel_size=kernel_size,
+            strides=strides,
+            activation=activation_fn,
+            kernel_initializer=kernel_initializer,
+            name='/'.join([name, 'conv1d']) if name else None)
+        for (filters, kernel_size, strides) in conv_1d_layer_params
+    ])
+  if conv_2d_layer_params is not None:
     layers.extend([
         tf.keras.layers.Conv2D(
             filters=filters,
@@ -156,7 +168,7 @@ def mlp_layers(conv_layer_params=None,
             activation=activation_fn,
             kernel_initializer=kernel_initializer,
             name='/'.join([name, 'conv2d']) if name else None)
-        for (filters, kernel_size, strides) in conv_layer_params
+        for (filters, kernel_size, strides) in conv_2d_layer_params
     ])
   layers.append(tf.keras.layers.Flatten())
 
@@ -168,25 +180,11 @@ def mlp_layers(conv_layer_params=None,
         raise ValueError('Dropout and full connected layer parameter lists have'
                          ' different lengths (%d vs. %d.)' %
                          (len(dropout_layer_params), len(fc_layer_params)))
-
-    if weight_decay_params is None:
-      weight_decay_params = [None] * len(fc_layer_params)
-    else:
-      if len(weight_decay_params) != len(fc_layer_params):
-        raise ValueError('Weight decay and fully connected layer parameter '
-                         'lists have different lengths (%d vs. %d.)' %
-                         (len(weight_decay_params), len(fc_layer_params)))
-
-    for num_units, dropout_params, weight_decay in zip(
-        fc_layer_params, dropout_layer_params, weight_decay_params):
-      kernel_regularizer = None
-      if weight_decay is not None:
-        kernel_regularizer = tf.keras.regularizers.l2(weight_decay)
+    for num_units, dropout_params in zip(fc_layer_params, dropout_layer_params):
       layers.append(tf.keras.layers.Dense(
           num_units,
           activation=activation_fn,
           kernel_initializer=kernel_initializer,
-          kernel_regularizer=kernel_regularizer,
           name='/'.join([name, 'dense']) if name else None))
       if not isinstance(dropout_params, dict):
         dropout_params = {'rate': dropout_params} if dropout_params else None
