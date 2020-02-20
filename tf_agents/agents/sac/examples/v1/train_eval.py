@@ -38,7 +38,10 @@ from absl import flags
 from absl import logging
 
 import gin
+import numpy as np
 import tensorflow as tf
+
+from gibson2.data.utils import *
 
 from tf_agents.agents.ddpg import critic_network
 from tf_agents.agents.sac import sac_agent
@@ -115,6 +118,8 @@ flags.DEFINE_list('model_ids', None,
 flags.DEFINE_list('model_ids_eval', None,
                   'A comma-separated list of model ids to overwrite config_file for eval.'
                   'len(model_ids) == num_parallel_environments_eval')
+flags.DEFINE_integer('reload_interval', None,
+                     'Reload environments from the entire train dataset every reload_interval train steps')
 flags.DEFINE_float('collision_reward_weight', 0.0,
                    'collision reward weight')
 flags.DEFINE_string('env_mode', 'headless',
@@ -155,6 +160,7 @@ def train_eval(
         gpu=0,
         env_load_fn=None,
         model_ids=None,
+        reload_interval=None,
         eval_env_mode='headless',
         num_iterations=1000000,
         conv_1d_layer_params=None,
@@ -225,11 +231,16 @@ def train_eval(
     global_step = tf.compat.v1.train.get_or_create_global_step()
     with tf.compat.v2.summary.record_if(
             lambda: tf.math.equal(global_step % summary_interval, 0)):
-        if model_ids is None:
-            model_ids = [None] * num_parallel_environments
+
+        if reload_interval is None:
+            if model_ids is None:
+                model_ids = [None] * num_parallel_environments
+            else:
+                assert len(model_ids) == num_parallel_environments, \
+                    'model ids provided, but length not equal to num_parallel_environments'
         else:
-            assert len(model_ids) == num_parallel_environments, \
-                'model ids provided, but length not equal to num_parallel_environments'
+            train_model_ids = [model['id'] for model in suite_gibson.get_train_models()]
+            model_ids = np.random.choice(train_model_ids, num_parallel_environments).tolist()
 
         if model_ids_eval is None:
             model_ids_eval = [None] * num_parallel_environments_eval
@@ -551,6 +562,10 @@ def train_eval(
                                 sess.run(metric_op)
                     sess.run(eval_summary_flush_op)
 
+                if global_step_val % reload_checkpoint_interval == 0:
+                    model_ids = np.random.choice(train_model_ids, num_parallel_environments).tolist()
+                    tf_env.reload_model(model_ids)
+
         sess.close()
 
 
@@ -596,6 +611,7 @@ def main(_):
             random_height=False,
         ),
         model_ids=FLAGS.model_ids,
+        reload_interval=FLAGS.reload_interval,
         eval_env_mode=FLAGS.env_mode,
         num_iterations=FLAGS.num_iterations,
         conv_1d_layer_params=conv_1d_layer_params,

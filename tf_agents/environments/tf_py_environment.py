@@ -267,6 +267,12 @@ class TFPyEnvironment(tf_environment.TFEnvironment):
       with tf.control_dependencies([reset_op]):
         return self.current_time_step()
 
+  @autograph.do_not_convert()
+  def reload_model(self, model_ids):
+    """Reload all environment with the new model_ids
+    """
+    self._env.reload_model(model_ids)
+
   # Make sure this is called without conversion from tf.function.
   # TODO(b/123600776): Remove override.
   @autograph.do_not_convert()

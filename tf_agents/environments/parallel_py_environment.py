@@ -116,6 +116,12 @@ class ParallelPyEnvironment(py_environment.PyEnvironment):
       time_steps = [promise() for promise in time_steps]
     return self._stack_time_steps(time_steps)
 
+  def reload_model(self, model_ids):
+    """Reload all environment with the new model_ids
+    """
+    for env, model_id in zip(self._envs, model_ids):
+      env.reload_model(model_id)
+
   def _step(self, actions):
     """Forward a batch of actions to the wrapped environments.
 
@@ -320,6 +326,13 @@ class ProcessPyEnvironment(object):
       return promise()
     else:
       return promise
+
+  def reload_model(self, model_id):
+    """Reload the environment.
+    Args:
+      model_id: which model to reload
+    """
+    self.call('reload_model', model_id)()
 
   def _receive(self):
     """Wait for a message from the worker process and return its payload.

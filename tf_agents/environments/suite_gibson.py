@@ -18,6 +18,7 @@ import gin
 
 from tf_agents.environments import gym_wrapper
 from tf_agents.environments import wrappers
+from gibson2.data.utils import get_train_models
 from gibson2.envs.locomotor_env import NavigateEnv, NavigateRandomEnv, NavigateRandomEnvSim2Real
 import gibson2
 
@@ -105,3 +106,5 @@ def wrap_env(env,
 
     return env
 
+def get_train_models_wrapper():
+    return get_train_models()
