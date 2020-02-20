@@ -18,7 +18,7 @@ import gin
 
 from tf_agents.environments import gym_wrapper
 from tf_agents.environments import wrappers
-from gibson2.envs.locomotor_env import NavigateEnv, NavigateRandomEnv
+from gibson2.envs.locomotor_env import NavigateEnv, NavigateRandomEnv, NavigateRandomEnvSim2Real
 import gibson2
 
 
@@ -27,6 +27,7 @@ def load(config_file,
          model_id=None,
          collision_reward_weight=0.0,
          env_type='gibson',
+         sim2real_track='static',
          env_mode='headless',
          action_timestep=1.0 / 10.0,
          physics_timestep=1.0 / 40.0,
@@ -51,6 +52,13 @@ def load(config_file,
                               action_timestep=action_timestep,
                               physics_timestep=physics_timestep,
                               device_idx=device_idx)
+    elif env_type == 'gibson_sim2real':
+        env = NavigateRandomEnvSim2Real(config_file=config_file,
+                                        mode=env_mode,
+                                        action_timestep=action_timestep,
+                                        physics_timestep=physics_timestep,
+                                        device_idx=device_idx,
+                                        track=sim2real_track)
     else:
         assert False, 'unknown env_type: {}'.format(env_type)
 
