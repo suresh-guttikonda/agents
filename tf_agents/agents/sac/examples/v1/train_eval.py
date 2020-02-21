@@ -539,7 +539,7 @@ def train_eval(
                                 sess.run(metric_op)
                     sess.run(eval_summary_flush_op)
 
-                if global_step_val % reload_interval == 0:
+                if reload_interval is not None and global_step_val % reload_interval == 0:
                     model_ids = np.random.choice(train_model_ids, num_parallel_environments).tolist()
                     tf_env.reload_model(model_ids)
 
