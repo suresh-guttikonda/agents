@@ -554,7 +554,7 @@ def main(_):
     os.environ['CUDA_VISIBLE_DEVICES'] = str(FLAGS.gpu_c)
 
     conv_1d_layer_params = [(32, 8, 4), (64, 4, 2), (64, 3, 1)]
-    conv_2d_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 1)]
+    conv_2d_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 2), (64, (3, 3), 2)]
     encoder_fc_layers = [256]
     actor_fc_layers = [256]
     critic_obs_fc_layers = [256]
