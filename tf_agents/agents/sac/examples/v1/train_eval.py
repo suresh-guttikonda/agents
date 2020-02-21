@@ -265,13 +265,6 @@ def train_eval(
         print('observation_spec', observation_spec)
         print('action_spec', action_spec)
 
-        occupancy_grid_conv_2d_layer_params = [
-            (32, (8, 8), 4),
-            (64, (4, 4), 2),
-            (64, (3, 3), 2),
-            (64, (3, 3), 2)
-        ]
-
         glorot_uniform_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
         preprocessing_layers = {}
         if 'rgb' in observation_spec:
@@ -286,22 +279,6 @@ def train_eval(
             preprocessing_layers['depth'] = tf.keras.Sequential(mlp_layers(
                 conv_1d_layer_params=None,
                 conv_2d_layer_params=conv_2d_layer_params,
-                fc_layer_params=encoder_fc_layers,
-                kernel_initializer=glorot_uniform_initializer,
-            ))
-
-        if 'occupancy_grid' in observation_spec:
-            preprocessing_layers['occupancy_grid'] = tf.keras.Sequential(mlp_layers(
-                conv_1d_layer_params=None,
-                conv_2d_layer_params=occupancy_grid_conv_2d_layer_params,
-                fc_layer_params=encoder_fc_layers,
-                kernel_initializer=glorot_uniform_initializer,
-            ))
-
-        if 'scan' in observation_spec:
-            preprocessing_layers['scan'] = tf.keras.Sequential(mlp_layers(
-                conv_1d_layer_params=conv_1d_layer_params,
-                conv_2d_layer_params=None,
                 fc_layer_params=encoder_fc_layers,
                 kernel_initializer=glorot_uniform_initializer,
             ))
