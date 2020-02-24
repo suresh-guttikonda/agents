@@ -120,15 +120,13 @@ flags.DEFINE_list('model_ids_eval', None,
                   'len(model_ids) == num_parallel_environments_eval')
 flags.DEFINE_integer('reload_interval', None,
                      'Reload environments from the entire train dataset every reload_interval train steps')
-flags.DEFINE_float('collision_reward_weight', 0.0,
-                   'collision reward weight')
 flags.DEFINE_string('env_mode', 'headless',
                     'Mode for the simulator (gui or headless)')
 flags.DEFINE_string('env_type', 'gibson',
                     'Type for the Gibson environment (gibson or gibson_sim2real)')
 flags.DEFINE_string('sim2real_track', 'static',
                     'Sim2Real challenge track (static, interactive, or dynamic)')
-flags.DEFINE_float('action_timestep', 1.0 / 10.0,
+flags.DEFINE_float('action_timestep', 1.0 / 5.0,
                    'Action timestep for the simulator')
 flags.DEFINE_float('physics_timestep', 1.0 / 40.0,
                    'Physics timestep for the simulator')
@@ -554,7 +552,7 @@ def main(_):
     os.environ['CUDA_VISIBLE_DEVICES'] = str(FLAGS.gpu_c)
 
     conv_1d_layer_params = [(32, 8, 4), (64, 4, 2), (64, 3, 1)]
-    conv_2d_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 2), (64, (3, 3), 2)]
+    conv_2d_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 2)]
     encoder_fc_layers = [256]
     actor_fc_layers = [256]
     critic_obs_fc_layers = [256]
@@ -577,7 +575,6 @@ def main(_):
         env_load_fn=lambda model_id, mode, device_idx: suite_gibson.load(
             config_file=FLAGS.config_file,
             model_id=model_id,
-            collision_reward_weight=FLAGS.collision_reward_weight,
             env_type=FLAGS.env_type,
             sim2real_track=FLAGS.sim2real_track,
             env_mode=mode,

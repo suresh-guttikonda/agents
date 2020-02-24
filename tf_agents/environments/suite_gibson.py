@@ -26,11 +26,10 @@ import gibson2
 @gin.configurable
 def load(config_file,
          model_id=None,
-         collision_reward_weight=0.0,
          env_type='gibson',
          sim2real_track='static',
          env_mode='headless',
-         action_timestep=1.0 / 10.0,
+         action_timestep=1.0 / 5.0,
          physics_timestep=1.0 / 40.0,
          device_idx=0,
          random_position=False,
