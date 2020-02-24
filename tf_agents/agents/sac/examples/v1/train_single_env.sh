@@ -40,5 +40,4 @@ python -u train_eval.py \
     --eval_interval 10000000 \
     --gpu_c $gpu_c \
     --gpu_g $gpu_g \
-    --num_parallel_environments 8 \
-    --collision_reward_weight 0.0
+    --num_parallel_environments 8
