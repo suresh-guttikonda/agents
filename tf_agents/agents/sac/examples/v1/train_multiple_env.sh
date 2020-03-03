@@ -1,6 +1,7 @@
 #!/bin/bash
 
-gpu="0"
+gpu_c="0"
+gpu_g="0"
 robot="locobot"
 
 if [[ -z "${CONFIG_FILE}" ]]; then
@@ -38,7 +39,6 @@ python -u train_eval.py \
     --replay_buffer_capacity 10000 \
     --num_eval_episodes 10 \
     --eval_interval 10000000 \
-    --gpu_c $gpu \
-    --gpu_g $gpu \
-    --num_parallel_environments 8 \
-    --collision_reward_weight 0.0
+    --gpu_c $gpu_c \
+    --gpu_g $gpu_g \
+    --num_parallel_environments 2

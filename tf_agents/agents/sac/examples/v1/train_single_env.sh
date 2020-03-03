@@ -1,6 +1,6 @@
 #!/bin/bash
 
-gpu_c="1"
+gpu_c="0"
 gpu_g="0"
 robot="locobot"
 
@@ -17,7 +17,7 @@ else
 fi
 
 if [[ -z "${LOG_DIR}" ]]; then
-  log_dir="challenge_"$sim2real_track"_can_col"
+  log_dir="test"
 else
   log_dir="${LOG_DIR}"
 fi
@@ -36,8 +36,8 @@ python -u train_eval.py \
     --batch_size 256 \
     --train_steps_per_iteration 1 \
     --replay_buffer_capacity 10000 \
-    --num_eval_episodes 1 \
+    --num_eval_episodes 10 \
     --eval_interval 10000000 \
     --gpu_c $gpu_c \
     --gpu_g $gpu_g \
-    --num_parallel_environments 8
+    --num_parallel_environments 2
