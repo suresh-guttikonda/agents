@@ -61,7 +61,6 @@ from tf_agents.policies import py_tf_policy
 from tf_agents.policies import random_tf_policy
 from tf_agents.replay_buffers import tf_uniform_replay_buffer
 from tf_agents.utils import common
-from IPython import embed
 
 flags.DEFINE_string('root_dir', os.getenv('TEST_UNDECLARED_OUTPUTS_DIR'),
                     'Root directory for writing logs/summaries/checkpoints.')
@@ -418,7 +417,7 @@ def train_eval(
 
         init_agent_op = tf_agent.initialize()
         with sess.as_default():
-            # Initialize graph.
+            # Initialize the graph.
             train_checkpointer.initialize_or_restore(sess)
 
             if eval_only:
@@ -485,12 +484,8 @@ def train_eval(
             for _ in range(num_iterations):
                 start_time = time.time()
                 collect_call()
-                # print('collect:', time.time() - start_time)
-
-                # train_start_time = time.time()
                 for _ in range(train_steps_per_iteration):
                     total_loss, _ = train_step_call()
-                # print('train:', time.time() - train_start_time)
 
                 time_acc += time.time() - start_time
                 global_step_val = global_step_call()
@@ -519,23 +514,11 @@ def train_eval(
                         eval_py_env,
                         eval_py_policy,
                         num_episodes=num_eval_episodes,
-                        global_step=0,
+                        global_step=global_step_val,
                         callback=eval_metrics_callback,
                         tf_summaries=True,
                         log=True,
                     )
-                    with eval_summary_writer.as_default(), tf.compat.v2.summary.record_if(True):
-                        with tf.name_scope('Metrics/'):
-                            episodes = eval_py_env.get_stored_episodes()
-                            episodes = [episode for sublist in episodes for episode in sublist][:num_eval_episodes]
-                            metrics = episode_utils.get_metrics(episodes)
-                            for key in sorted(metrics.keys()):
-                                print(key, ':', metrics[key])
-                                metric_op = tf.compat.v2.summary.scalar(name=key,
-                                                                        data=metrics[key],
-                                                                        step=global_step_val)
-                                sess.run(metric_op)
-                    sess.run(eval_summary_flush_op)
 
                 if reload_interval is not None and global_step_val % reload_interval == 0:
                     model_ids = np.random.choice(train_model_ids, num_parallel_environments).tolist()
