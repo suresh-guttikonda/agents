@@ -510,7 +510,7 @@ def train_eval(
                 steps_per_sec_by_env = episode_steps / env_time_acc
                 logging.info('env: %.3f steps/sec', steps_per_sec_by_env)
 
-                episode_steps_per_prl_env = episode_steps / num_parallel_environments
+                episode_steps_per_prl_env = int(episode_steps / num_parallel_environments)
                 for _ in range(episode_steps_per_prl_env):
                     start_time = time.time()
                     for _ in range(train_steps_per_iteration):
