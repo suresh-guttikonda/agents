@@ -58,6 +58,7 @@ class LSTMEncodingNetwork(network.Network):
       lstm_size=(40,),
       output_fc_layer_params=(75, 40),
       activation_fn=tf.keras.activations.relu,
+      kernel_initializer=None,
       dtype=tf.float32,
       name='LSTMEncodingNetwork',
   ):
@@ -124,8 +125,9 @@ class LSTMEncodingNetwork(network.Network):
       ValueError: If any of `preprocessing_layers` is already built.
       ValueError: If `preprocessing_combiner` is already built.
     """
-    kernel_initializer = tf.compat.v1.variance_scaling_initializer(
-        scale=2.0, mode='fan_in', distribution='truncated_normal')
+    if kernel_initializer is None:
+        kernel_initializer = tf.compat.v1.variance_scaling_initializer(
+            scale=2.0, mode='fan_in', distribution='truncated_normal')
 
     input_encoder = encoding_network.EncodingNetwork(
         input_tensor_spec,

@@ -19,6 +19,7 @@ import gin
 import tensorflow as tf
 from tf_agents.networks import dynamic_unroll_layer
 from tf_agents.networks import network
+from tf_agents.networks import encoding_network
 from tf_agents.networks import utils
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import time_step
@@ -31,10 +32,18 @@ class CriticRnnNetwork(network.Network):
 
   def __init__(self,
                input_tensor_spec,
+               preprocessing_layers=None,
+               preprocessing_combiner=None,
+               kernel_initializer=None,
+               batch_squash=True,
+               dtype=tf.float32,
                observation_conv_layer_params=None,
                observation_fc_layer_params=(200,),
+               observation_dropout_layer_params=None,
                action_fc_layer_params=(200,),
+               action_dropout_layer_params=None,
                joint_fc_layer_params=(100,),
+               joint_dropout_layer_params=None,
                lstm_size=(40,),
                output_fc_layer_params=(200, 100),
                activation_fn=tf.keras.activations.relu,
@@ -72,35 +81,38 @@ class CriticRnnNetwork(network.Network):
     """
     observation_spec, action_spec = input_tensor_spec
 
-    if len(tf.nest.flatten(observation_spec)) > 1:
-      raise ValueError(
-          'Only a single observation is supported by this network.')
-
     if len(tf.nest.flatten(action_spec)) > 1:
       raise ValueError('Only a single action is supported by this network.')
 
-    observation_layers = utils.mlp_layers(
-        observation_conv_layer_params,
-        observation_fc_layer_params,
+    if not kernel_initializer:
+      kernel_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
+
+    encoder = encoding_network.EncodingNetwork(
+        observation_spec,
+        preprocessing_layers=preprocessing_layers,
+        preprocessing_combiner=preprocessing_combiner,
+        conv_layer_params=observation_conv_layer_params,
+        fc_layer_params=observation_fc_layer_params,
+        dropout_layer_params=observation_dropout_layer_params,
         activation_fn=activation_fn,
-        kernel_initializer=tf.compat.v1.keras.initializers.VarianceScaling(
-            scale=1. / 3., mode='fan_in', distribution='uniform'),
-        name='observation_encoding')
+        kernel_initializer=kernel_initializer,
+        batch_squash=batch_squash,
+        dtype=dtype)
 
     action_layers = utils.mlp_layers(
         None,
+        None,
         action_fc_layer_params,
         activation_fn=activation_fn,
-        kernel_initializer=tf.compat.v1.keras.initializers.VarianceScaling(
-            scale=1. / 3., mode='fan_in', distribution='uniform'),
+        kernel_initializer=kernel_initializer,
         name='action_encoding')
 
     joint_layers = utils.mlp_layers(
         None,
+        None,
         joint_fc_layer_params,
         activation_fn=activation_fn,
-        kernel_initializer=tf.compat.v1.keras.initializers.VarianceScaling(
-            scale=1. / 3., mode='fan_in', distribution='uniform'),
+        kernel_initializer=kernel_initializer,
         name='joint_mlp')
 
     # Create RNN cell
@@ -135,7 +147,7 @@ class CriticRnnNetwork(network.Network):
         state_spec=state_spec,
         name=name)
 
-    self._observation_layers = observation_layers
+    self._encoder = encoder
     self._action_layers = action_layers
     self._joint_layers = joint_layers
     self._dynamic_unroll = dynamic_unroll_layer.DynamicUnroll(cell)
@@ -160,20 +172,19 @@ class CriticRnnNetwork(network.Network):
       step_type = tf.nest.map_structure(lambda t: tf.expand_dims(t, 1),
                                         step_type)
 
-    observation = tf.cast(tf.nest.flatten(observation)[0], tf.float32)
     action = tf.cast(tf.nest.flatten(action)[0], tf.float32)
 
     batch_squash = utils.BatchSquash(2)  # Squash B, and T dims.
-    observation = batch_squash.flatten(observation)  # [B, T, ...] -> [BxT, ...]
+    observation = tf.nest.map_structure(batch_squash.flatten, observation)
     action = batch_squash.flatten(action)
 
-    for layer in self._observation_layers:
-      observation = layer(observation)
+    observation, network_state = self._encoder(observation, step_type=step_type, network_state=network_state)
 
     for layer in self._action_layers:
       action = layer(action)
 
     joint = tf.concat([observation, action], -1)
+
     for layer in self._joint_layers:
       joint = layer(joint)
 
@@ -194,6 +205,7 @@ class CriticRnnNetwork(network.Network):
 
     q_value = tf.reshape(output, [-1])
     q_value = batch_squash.unflatten(q_value)  # [B x T, ...] -> [B, T, ...]
+
     if not has_time_dim:
       q_value = tf.squeeze(q_value, axis=1)
 

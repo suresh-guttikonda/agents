@@ -26,15 +26,14 @@ echo "config_file:" $config_file
 echo "sim2real_track:" $sim2real_track
 echo "log_dir:" $log_dir
 
-python -u train_eval.py \
+python -u train_eval_rnn.py \
     --root_dir $log_dir \
-    --reload_interval 5000 \
     --env_type gibson_sim2real \
     --sim2real_track $sim2real_track \
     --config_file $config_file \
-    --initial_collect_steps 500 \
-    --collect_steps_per_iteration 1 \
-    --batch_size 256 \
+    --initial_collect_episodes 1 \
+    --collect_episodes_per_iteration 1 \
+    --batch_size 64 \
     --train_steps_per_iteration 1 \
     --replay_buffer_capacity 10000 \
     --num_eval_episodes 10 \

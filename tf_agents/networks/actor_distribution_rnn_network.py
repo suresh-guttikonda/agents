@@ -70,6 +70,7 @@ class ActorDistributionRnnNetwork(network.DistributionNetwork):
                output_fc_layer_params=(200, 100),
                activation_fn=tf.keras.activations.relu,
                dtype=tf.float32,
+               kernel_initializer=None,
                discrete_projection_net=_categorical_projection_net,
                continuous_projection_net=_normal_projection_net,
                name='ActorDistributionRnnNetwork'):
@@ -124,6 +125,9 @@ class ActorDistributionRnnNetwork(network.DistributionNetwork):
     if input_dropout_layer_params:
       raise ValueError('Dropout layer is not supported.')
 
+    if not kernel_initializer:
+      kernel_initializer = tf.compat.v1.keras.initializers.glorot_uniform()
+
     lstm_encoder = lstm_encoding_network.LSTMEncodingNetwork(
         input_tensor_spec=input_tensor_spec,
         preprocessing_layers=preprocessing_layers,
@@ -133,6 +137,7 @@ class ActorDistributionRnnNetwork(network.DistributionNetwork):
         lstm_size=lstm_size,
         output_fc_layer_params=output_fc_layer_params,
         activation_fn=activation_fn,
+        kernel_initializer=kernel_initializer,
         dtype=dtype,
         name=name)
 
