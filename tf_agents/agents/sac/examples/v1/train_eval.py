@@ -125,7 +125,7 @@ flags.DEFINE_string('env_type', 'gibson',
                     'Type for the Gibson environment (gibson or gibson_sim2real)')
 flags.DEFINE_string('sim2real_track', 'static',
                     'Sim2Real challenge track (static, interactive, or dynamic)')
-flags.DEFINE_float('action_timestep', 1.0 / 5.0,
+flags.DEFINE_float('action_timestep', 1.0 / 10.0,
                    'Action timestep for the simulator')
 flags.DEFINE_float('physics_timestep', 1.0 / 40.0,
                    'Physics timestep for the simulator')
