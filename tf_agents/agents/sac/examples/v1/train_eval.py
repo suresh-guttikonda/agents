@@ -133,6 +133,10 @@ flags.DEFINE_integer('gpu_g', 0,
                      'GPU id for graphics, e.g. Gibson.')
 flags.DEFINE_boolean('random_position', False,
                      'Whether to randomize initial and target position')
+flags.DEFINE_float('collision_reward_weight', None,
+                   'collision reward weight')
+flags.DEFINE_float('max_collisions_allowed', None,
+                   'max collisions allowed')
 
 FLAGS = flags.FLAGS
 
@@ -159,6 +163,7 @@ def train_eval(
         model_ids=None,
         reload_interval=None,
         eval_env_mode='headless',
+        max_collisions_allowed=None,
         num_iterations=1000000,
         conv_1d_layer_params=None,
         conv_2d_layer_params=None,
@@ -236,8 +241,10 @@ def train_eval(
                 assert len(model_ids) == num_parallel_environments, \
                     'model ids provided, but length not equal to num_parallel_environments'
         else:
-            train_model_ids = [model['id'] for model in suite_gibson.get_train_models()]
-            model_ids = np.random.choice(train_model_ids, num_parallel_environments).tolist()
+            train_model_ids = [model['id']
+                               for model in suite_gibson.get_train_models()]
+            model_ids = np.random.choice(
+                train_model_ids, num_parallel_environments).tolist()
 
         if model_ids_eval is None:
             model_ids_eval = [None] * num_parallel_environments_eval
@@ -245,15 +252,19 @@ def train_eval(
             assert len(model_ids_eval) == num_parallel_environments_eval, \
                 'model ids eval provided, but length not equal to num_parallel_environments_eval'
 
-        tf_py_env = [lambda model_id=model_ids[i]: env_load_fn(model_id, 'headless', gpu)
+        # max_collisions_allowed during training
+        tf_py_env = [lambda model_id=model_ids[i]: env_load_fn(model_id, 'headless', gpu, max_collisions_allowed)
                      for i in range(num_parallel_environments)]
-        tf_env = tf_py_environment.TFPyEnvironment(parallel_py_environment.ParallelPyEnvironment(tf_py_env))
+        tf_env = tf_py_environment.TFPyEnvironment(
+            parallel_py_environment.ParallelPyEnvironment(tf_py_env))
 
+        # max_collisions_allowed == 0 during evaluation
         if eval_env_mode == 'gui':
             assert num_parallel_environments_eval == 1, 'only one GUI env is allowed'
-        eval_py_env = [lambda model_id=model_ids_eval[i]: env_load_fn(model_id, eval_env_mode, gpu)
+        eval_py_env = [lambda model_id=model_ids_eval[i]: env_load_fn(model_id, eval_env_mode, gpu, 0)
                        for i in range(num_parallel_environments_eval)]
-        eval_py_env = parallel_py_environment.ParallelPyEnvironment(eval_py_env)
+        eval_py_env = parallel_py_environment.ParallelPyEnvironment(
+            eval_py_env)
 
         # Get the data specs from the environment
         time_step_spec = tf_env.time_step_spec()
@@ -346,7 +357,8 @@ def train_eval(
         replay_observer = [replay_buffer.add_batch]
 
         if eval_deterministic:
-            eval_py_policy = py_tf_policy.PyTFPolicy(greedy_policy.GreedyPolicy(tf_agent.policy))
+            eval_py_policy = py_tf_policy.PyTFPolicy(
+                greedy_policy.GreedyPolicy(tf_agent.policy))
         else:
             eval_py_policy = py_tf_policy.PyTFPolicy(tf_agent.policy)
 
@@ -364,7 +376,8 @@ def train_eval(
         ]
 
         collect_policy = tf_agent.collect_policy
-        initial_collect_policy = random_tf_policy.RandomTFPolicy(time_step_spec, action_spec)
+        initial_collect_policy = random_tf_policy.RandomTFPolicy(
+            time_step_spec, action_spec)
 
         initial_collect_op = dynamic_step_driver.DynamicStepDriver(
             tf_env,
@@ -387,7 +400,8 @@ def train_eval(
             sample_batch_size=5 * batch_size,
             num_steps=2).apply(tf.data.experimental.unbatch()).filter(
             _filter_invalid_transition).batch(batch_size).prefetch(5)
-        dataset_iterator = tf.compat.v1.data.make_initializable_iterator(dataset)
+        dataset_iterator = tf.compat.v1.data.make_initializable_iterator(
+            dataset)
         trajectories, unused_info = dataset_iterator.get_next()
         train_op = tf_agent.train(trajectories)
 
@@ -490,8 +504,10 @@ def train_eval(
                 time_acc += time.time() - start_time
                 global_step_val = global_step_call()
                 if global_step_val % log_interval == 0:
-                    logging.info('step = %d, loss = %f', global_step_val, total_loss.loss)
-                    steps_per_sec = (global_step_val - timed_at_step) / time_acc
+                    logging.info('step = %d, loss = %f',
+                                 global_step_val, total_loss.loss)
+                    steps_per_sec = (global_step_val -
+                                     timed_at_step) / time_acc
                     logging.info('%.3f steps/sec', steps_per_sec)
                     sess.run(
                         steps_per_second_summary,
@@ -521,7 +537,8 @@ def train_eval(
                     )
 
                 if reload_interval is not None and global_step_val % reload_interval == 0:
-                    model_ids = np.random.choice(train_model_ids, num_parallel_environments).tolist()
+                    model_ids = np.random.choice(
+                        train_model_ids, num_parallel_environments).tolist()
                     tf_env.reload_model(model_ids)
 
         sess.close()
@@ -535,7 +552,7 @@ def main(_):
     os.environ['CUDA_VISIBLE_DEVICES'] = str(FLAGS.gpu_c)
 
     conv_1d_layer_params = [(32, 8, 4), (64, 4, 2), (64, 3, 1)]
-    conv_2d_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 2)]
+    conv_2d_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 1)]
     encoder_fc_layers = [256]
     actor_fc_layers = [256]
     critic_obs_fc_layers = [256]
@@ -555,18 +572,21 @@ def main(_):
     train_eval(
         root_dir=FLAGS.root_dir,
         gpu=FLAGS.gpu_g,
-        env_load_fn=lambda model_id, mode, device_idx: suite_gibson.load(
-            config_file=FLAGS.config_file,
-            model_id=model_id,
-            env_type=FLAGS.env_type,
-            sim2real_track=FLAGS.sim2real_track,
-            env_mode=mode,
-            action_timestep=FLAGS.action_timestep,
-            physics_timestep=FLAGS.physics_timestep,
-            device_idx=device_idx,
-            random_position=FLAGS.random_position,
-            random_height=False,
-        ),
+        env_load_fn=lambda model_id, mode, device_idx, max_collisions_allowed:
+            suite_gibson.load(
+                config_file=FLAGS.config_file,
+                model_id=model_id,
+                env_type=FLAGS.env_type,
+                sim2real_track=FLAGS.sim2real_track,
+                env_mode=mode,
+                action_timestep=FLAGS.action_timestep,
+                physics_timestep=FLAGS.physics_timestep,
+                device_idx=device_idx,
+                random_position=FLAGS.random_position,
+                random_height=False,
+                collision_reward_weight=FLAGS.collision_reward_weight,
+                max_collisions_allowed=max_collisions_allowed
+            ),
         model_ids=FLAGS.model_ids,
         reload_interval=FLAGS.reload_interval,
         eval_env_mode=FLAGS.env_mode,
@@ -593,6 +613,7 @@ def main(_):
         eval_only=FLAGS.eval_only,
         num_parallel_environments_eval=FLAGS.num_parallel_environments_eval,
         model_ids_eval=FLAGS.model_ids_eval,
+        max_collisions_allowed=FLAGS.max_collisions_allowed,
     )
 
 

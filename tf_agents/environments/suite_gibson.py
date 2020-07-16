@@ -29,6 +29,8 @@ def load(config_file,
          env_type='gibson',
          sim2real_track='static',
          env_mode='headless',
+         collision_reward_weight=None,
+         max_collisions_allowed=None,
          action_timestep=1.0 / 10.0,
          physics_timestep=1.0 / 40.0,
          device_idx=0,
@@ -53,12 +55,15 @@ def load(config_file,
                               physics_timestep=physics_timestep,
                               device_idx=device_idx)
     elif env_type == 'gibson_sim2real':
-        env = NavigateRandomEnvSim2Real(config_file=config_file,
-                                        mode=env_mode,
-                                        action_timestep=action_timestep,
-                                        physics_timestep=physics_timestep,
-                                        device_idx=device_idx,
-                                        track=sim2real_track)
+        env = NavigateRandomEnvSim2Real(
+            config_file=config_file,
+            mode=env_mode,
+            action_timestep=action_timestep,
+            physics_timestep=physics_timestep,
+            device_idx=device_idx,
+            collision_reward_weight=collision_reward_weight,
+            max_collisions_allowed=max_collisions_allowed,
+            track=sim2real_track)
     else:
         assert False, 'unknown env_type: {}'.format(env_type)
 
@@ -104,6 +109,7 @@ def wrap_env(env,
         env = wrapper(env)
 
     return env
+
 
 def get_train_models_wrapper():
     return get_train_models()
