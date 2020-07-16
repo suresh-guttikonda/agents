@@ -2,7 +2,7 @@
 
 algo="sac"
 robot="locobot"
-config_file="../examples/configs/"$robot"_interactive_nav_s2r_mp_continuous.yaml"
+config_file="../examples/configs/"$robot"_p2p_nav_house.yaml"
 lr="3e-4"
 gamma="0.999"
 env_type="gibson_sim2real"
