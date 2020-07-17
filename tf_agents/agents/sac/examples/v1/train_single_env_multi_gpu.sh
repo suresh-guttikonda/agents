@@ -26,7 +26,7 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
-log_dir="/result/coll_rwd_wgt_"$collision_reward_weight"_max_coll_allowed_"max_collisions_allowed"_"$seed
+log_dir="/result/coll_rwd_wgt_"$collision_reward_weight"_max_coll_allowed_"$max_collisions_allowed"_"$seed
 mkdir -p $log_dir
 echo "log_dir:" $log_dir
 echo "gpu_c:" $gpu_c
