@@ -585,7 +585,8 @@ def main(_):
                 random_position=FLAGS.random_position,
                 random_height=False,
                 collision_reward_weight=FLAGS.collision_reward_weight,
-                max_collisions_allowed=max_collisions_allowed
+                max_collisions_allowed=max_collisions_allowed,
+                log_dir=FLAGS.root_dir,
             ),
         model_ids=FLAGS.model_ids,
         reload_interval=FLAGS.reload_interval,

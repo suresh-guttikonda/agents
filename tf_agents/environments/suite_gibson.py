@@ -29,6 +29,7 @@ def load(config_file,
          env_type='gibson',
          sim2real_track='static',
          env_mode='headless',
+         log_dir=None,
          collision_reward_weight=None,
          max_collisions_allowed=None,
          action_timestep=1.0 / 10.0,
@@ -47,13 +48,15 @@ def load(config_file,
                                     action_timestep=action_timestep,
                                     physics_timestep=physics_timestep,
                                     device_idx=device_idx,
-                                    random_height=random_height)
+                                    random_height=random_height,
+                                    log_dir=log_dir)
         else:
             env = NavigateEnv(config_file=config_file,
                               mode=env_mode,
                               action_timestep=action_timestep,
                               physics_timestep=physics_timestep,
-                              device_idx=device_idx)
+                              device_idx=device_idx,
+                              log_dir=log_dir)
     elif env_type == 'gibson_sim2real':
         env = NavigateRandomEnvSim2Real(
             config_file=config_file,
@@ -63,7 +66,8 @@ def load(config_file,
             device_idx=device_idx,
             collision_reward_weight=collision_reward_weight,
             max_collisions_allowed=max_collisions_allowed,
-            track=sim2real_track)
+            track=sim2real_track,
+            log_dir=log_dir)
     else:
         assert False, 'unknown env_type: {}'.format(env_type)
 
