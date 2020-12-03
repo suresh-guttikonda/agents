@@ -41,8 +41,6 @@ import gin
 import numpy as np
 import tensorflow as tf
 
-from gibson2.data.utils import *
-
 from tf_agents.agents.ddpg import critic_network
 from tf_agents.agents.sac import sac_agent
 from tf_agents.drivers import dynamic_step_driver
@@ -117,14 +115,8 @@ flags.DEFINE_list('model_ids', None,
 flags.DEFINE_list('model_ids_eval', None,
                   'A comma-separated list of model ids to overwrite config_file for eval.'
                   'len(model_ids) == num_parallel_environments_eval')
-flags.DEFINE_integer('reload_interval', None,
-                     'Reload environments from the entire train dataset every reload_interval train steps')
 flags.DEFINE_string('env_mode', 'headless',
                     'Mode for the simulator (gui or headless)')
-flags.DEFINE_string('env_type', 'gibson',
-                    'Type for the Gibson environment (gibson or gibson_sim2real)')
-flags.DEFINE_string('sim2real_track', 'static',
-                    'Sim2Real challenge track (static, interactive, or dynamic)')
 flags.DEFINE_float('action_timestep', 1.0 / 10.0,
                    'Action timestep for the simulator')
 flags.DEFINE_float('physics_timestep', 1.0 / 40.0,
@@ -229,15 +221,11 @@ def train_eval(
     with tf.compat.v2.summary.record_if(
             lambda: tf.math.equal(global_step % summary_interval, 0)):
 
-        if reload_interval is None:
-            if model_ids is None:
-                model_ids = [None] * num_parallel_environments
-            else:
-                assert len(model_ids) == num_parallel_environments, \
-                    'model ids provided, but length not equal to num_parallel_environments'
+        if model_ids is None:
+            model_ids = [None] * num_parallel_environments
         else:
-            train_model_ids = [model['id'] for model in suite_gibson.get_train_models()]
-            model_ids = np.random.choice(train_model_ids, num_parallel_environments).tolist()
+            assert len(model_ids) == num_parallel_environments, \
+                'model ids provided, but length not equal to num_parallel_environments'
 
         if model_ids_eval is None:
             model_ids_eval = [None] * num_parallel_environments_eval
@@ -247,13 +235,15 @@ def train_eval(
 
         tf_py_env = [lambda model_id=model_ids[i]: env_load_fn(model_id, 'headless', gpu)
                      for i in range(num_parallel_environments)]
-        tf_env = tf_py_environment.TFPyEnvironment(parallel_py_environment.ParallelPyEnvironment(tf_py_env))
+        tf_env = tf_py_environment.TFPyEnvironment(
+            parallel_py_environment.ParallelPyEnvironment(tf_py_env))
 
         if eval_env_mode == 'gui':
             assert num_parallel_environments_eval == 1, 'only one GUI env is allowed'
         eval_py_env = [lambda model_id=model_ids_eval[i]: env_load_fn(model_id, eval_env_mode, gpu)
                        for i in range(num_parallel_environments_eval)]
-        eval_py_env = parallel_py_environment.ParallelPyEnvironment(eval_py_env)
+        eval_py_env = parallel_py_environment.ParallelPyEnvironment(
+            eval_py_env)
 
         # Get the data specs from the environment
         time_step_spec = tf_env.time_step_spec()
@@ -280,8 +270,16 @@ def train_eval(
                 kernel_initializer=glorot_uniform_initializer,
             ))
 
-        if 'sensor' in observation_spec:
-            preprocessing_layers['sensor'] = tf.keras.Sequential(mlp_layers(
+        if 'scan' in observation_spec:
+            preprocessing_layers['scan'] = tf.keras.Sequential(mlp_layers(
+                conv_1d_layer_params=conv_1d_layer_params,
+                conv_2d_layer_params=None,
+                fc_layer_params=encoder_fc_layers,
+                kernel_initializer=glorot_uniform_initializer,
+            ))
+
+        if 'task_obs' in observation_spec:
+            preprocessing_layers['task_obs'] = tf.keras.Sequential(mlp_layers(
                 conv_1d_layer_params=None,
                 conv_2d_layer_params=None,
                 fc_layer_params=encoder_fc_layers,
@@ -346,7 +344,8 @@ def train_eval(
         replay_observer = [replay_buffer.add_batch]
 
         if eval_deterministic:
-            eval_py_policy = py_tf_policy.PyTFPolicy(greedy_policy.GreedyPolicy(tf_agent.policy))
+            eval_py_policy = py_tf_policy.PyTFPolicy(
+                greedy_policy.GreedyPolicy(tf_agent.policy))
         else:
             eval_py_policy = py_tf_policy.PyTFPolicy(tf_agent.policy)
 
@@ -364,7 +363,8 @@ def train_eval(
         ]
 
         collect_policy = tf_agent.collect_policy
-        initial_collect_policy = random_tf_policy.RandomTFPolicy(time_step_spec, action_spec)
+        initial_collect_policy = random_tf_policy.RandomTFPolicy(
+            time_step_spec, action_spec)
 
         initial_collect_op = dynamic_step_driver.DynamicStepDriver(
             tf_env,
@@ -387,7 +387,8 @@ def train_eval(
             sample_batch_size=5 * batch_size,
             num_steps=2).apply(tf.data.experimental.unbatch()).filter(
             _filter_invalid_transition).batch(batch_size).prefetch(5)
-        dataset_iterator = tf.compat.v1.data.make_initializable_iterator(dataset)
+        dataset_iterator = tf.compat.v1.data.make_initializable_iterator(
+            dataset)
         trajectories, unused_info = dataset_iterator.get_next()
         train_op = tf_agent.train(trajectories)
 
@@ -490,8 +491,10 @@ def train_eval(
                 time_acc += time.time() - start_time
                 global_step_val = global_step_call()
                 if global_step_val % log_interval == 0:
-                    logging.info('step = %d, loss = %f', global_step_val, total_loss.loss)
-                    steps_per_sec = (global_step_val - timed_at_step) / time_acc
+                    logging.info('step = %d, loss = %f',
+                                 global_step_val, total_loss.loss)
+                    steps_per_sec = (global_step_val -
+                                     timed_at_step) / time_acc
                     logging.info('%.3f steps/sec', steps_per_sec)
                     sess.run(
                         steps_per_second_summary,
@@ -519,10 +522,6 @@ def train_eval(
                         tf_summaries=True,
                         log=True,
                     )
-
-                if reload_interval is not None and global_step_val % reload_interval == 0:
-                    model_ids = np.random.choice(train_model_ids, num_parallel_environments).tolist()
-                    tf_env.reload_model(model_ids)
 
         sess.close()
 
@@ -558,17 +557,12 @@ def main(_):
         env_load_fn=lambda model_id, mode, device_idx: suite_gibson.load(
             config_file=FLAGS.config_file,
             model_id=model_id,
-            env_type=FLAGS.env_type,
-            sim2real_track=FLAGS.sim2real_track,
             env_mode=mode,
             action_timestep=FLAGS.action_timestep,
             physics_timestep=FLAGS.physics_timestep,
             device_idx=device_idx,
-            random_position=FLAGS.random_position,
-            random_height=False,
         ),
         model_ids=FLAGS.model_ids,
-        reload_interval=FLAGS.reload_interval,
         eval_env_mode=FLAGS.env_mode,
         num_iterations=FLAGS.num_iterations,
         conv_1d_layer_params=conv_1d_layer_params,
