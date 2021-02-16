@@ -4,7 +4,7 @@ gpu_c="0"
 gpu_g="0"
 
 if [[ -z "${CONFIG_FILE}" ]]; then
-  config_file="../examples/configs/turtlebot_demo.yaml"
+  config_file="examples/configs/locobot_social_nav.yaml"
 else
   config_file="${CONFIG_FILE}"
 fi
@@ -30,4 +30,5 @@ python -u train_eval.py \
     --eval_interval 10000000 \
     --gpu_c $gpu_c \
     --gpu_g $gpu_g \
-    --num_parallel_environments 1
+    --num_parallel_environments 8 \
+    --model_ids Rs_int,Benevolence_0_int,Pomaria_0_int,Ihlen_1_int,Merom_0_int,Beechwood_1_int,Ihlen_0_int,Wainscott_1_int
