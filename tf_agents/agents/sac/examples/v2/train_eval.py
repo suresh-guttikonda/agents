@@ -109,6 +109,24 @@ flags.DEFINE_boolean('eval_deterministic', False,
 flags.DEFINE_integer('gpu_c', 0,
                      'GPU id for compute, e.g. Tensorflow.')
 
+# Added for Gibson
+flags.DEFINE_string('config_file', None,
+                    'Config file for the experiment.')
+flags.DEFINE_list('model_ids', None,
+                  'A comma-separated list of model ids to overwrite config_file.'
+                  'len(model_ids) == num_parallel_environments')
+flags.DEFINE_list('model_ids_eval', None,
+                  'A comma-separated list of model ids to overwrite config_file for eval.'
+                  'len(model_ids) == num_parallel_environments_eval')
+flags.DEFINE_string('env_mode', 'headless',
+                    'Mode for the simulator (gui or headless)')
+flags.DEFINE_float('action_timestep', 1.0 / 10.0,
+                   'Action timestep for the simulator')
+flags.DEFINE_float('physics_timestep', 1.0 / 40.0,
+                   'Physics timestep for the simulator')
+flags.DEFINE_integer('gpu_g', 0,
+                     'GPU id for graphics, e.g. Gibson.')
+
 FLAGS = flags.FLAGS
 
 
