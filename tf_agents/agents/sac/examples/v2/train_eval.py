@@ -45,6 +45,9 @@ import gin
 from six.moves import range
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 
+import functools
+
+from tf_agents.system import system_multiprocessing as multiprocessing
 from tf_agents.agents.ddpg import critic_network
 from tf_agents.agents.sac import sac_agent
 from tf_agents.agents.sac import tanh_normal_projection_network
@@ -499,15 +502,19 @@ def main(_):
     print('critic_action_fc_layers', critic_action_fc_layers)
     print('critic_joint_fc_layers', critic_joint_fc_layers)
 
+    config_file = FLAGS.config_file
+    action_timestep = FLAGS.action_timestep
+    physics_timestep = FLAGS.physics_timestep
+
     train_eval(
         root_dir=FLAGS.root_dir,
         gpu=FLAGS.gpu_g,
         env_load_fn=lambda model_id, mode, device_idx: suite_gibson.load(
-            config_file=FLAGS.config_file,
+            config_file=config_file,
             model_id=model_id,
             env_mode=mode,
-            action_timestep=FLAGS.action_timestep,
-            physics_timestep=FLAGS.physics_timestep,
+            action_timestep=action_timestep,
+            physics_timestep=physics_timestep,
             device_idx=device_idx,
         ),
         model_ids=FLAGS.model_ids,
@@ -541,4 +548,5 @@ def main(_):
 if __name__ == '__main__':
     flags.mark_flag_as_required('root_dir')
     flags.mark_flag_as_required('config_file')
+    multiprocessing.handle_main(functools.partial(app.run, main))
     app.run(main)
