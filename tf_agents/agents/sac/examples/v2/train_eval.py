@@ -374,6 +374,9 @@ def train_eval(
             summary_writer=eval_summary_writer,
             summary_prefix='Metrics',
         )
+        if eval_only:
+            print('EVAL DONE')
+            return
         if eval_metrics_callback is not None:
             eval_metrics_callback(results, global_step.numpy())
         metric_utils.log_metrics(eval_metrics)
