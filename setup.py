@@ -289,7 +289,7 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser(add_help=False)
   parser.add_argument(
       '--release',
-      action='store_true',
+      action='store_false',
       help='Pass as true to do a release build')
   parser.add_argument(
       '--tf-version',

@@ -184,7 +184,8 @@ def train_eval(
     summaries_flush_secs=10,
     debug_summaries=False,
     summarize_grads_and_vars=False,
-        eval_metrics_callback=None):
+    eval_metrics_callback=None):
+
     """A simple train and eval for SAC."""
     root_dir = os.path.expanduser(root_dir)
     train_dir = os.path.join(root_dir, 'train')
@@ -197,16 +198,9 @@ def train_eval(
     eval_summary_writer = tf.compat.v2.summary.create_file_writer(
         eval_dir, flush_millis=summaries_flush_secs * 1000)
     eval_metrics = [
-        batched_py_metric.BatchedPyMetric(
-            py_metrics.AverageReturnMetric,
-            metric_args={'buffer_size': num_eval_episodes},
-            batch_size=num_parallel_environments_eval),
-        batched_py_metric.BatchedPyMetric(
-            py_metrics.AverageEpisodeLengthMetric,
-            metric_args={'buffer_size': num_eval_episodes},
-            batch_size=num_parallel_environments_eval),
+        tf_metrics.AverageReturnMetric(buffer_size=num_eval_episodes),
+        tf_metrics.AverageEpisodeLengthMetric(buffer_size=num_eval_episodes)
     ]
-    eval_summary_flush_op = eval_summary_writer.flush()
 
     global_step = tf.compat.v1.train.get_or_create_global_step()
     with tf.compat.v2.summary.record_if(
@@ -286,7 +280,9 @@ def train_eval(
             preprocessing_layers=preprocessing_layers,
             preprocessing_combiner=preprocessing_combiner,
             fc_layer_params=actor_fc_layers,
-            continuous_projection_net=tanh_normal_projection_network.TanhNormalProjectionNetwork)
+            continuous_projection_net=tanh_normal_projection_network.TanhNormalProjectionNetwork,
+            kernel_initializer=glorot_uniform_initializer
+            )
         critic_net = critic_network.CriticNetwork(
             (observation_spec, action_spec),
             preprocessing_layers=preprocessing_layers,
@@ -294,8 +290,8 @@ def train_eval(
             observation_fc_layer_params=critic_obs_fc_layers,
             action_fc_layer_params=critic_action_fc_layers,
             joint_fc_layer_params=critic_joint_fc_layers,
-            kernel_initializer='glorot_uniform',
-            last_kernel_initializer='glorot_uniform')
+            kernel_initializer=glorot_uniform_initializer
+            )
 
         tf_agent = sac_agent.SacAgent(
             time_step_spec,
@@ -483,6 +479,7 @@ def main(_):
     gin.parse_config_files_and_bindings(FLAGS.gin_file, FLAGS.gin_param)
 
     os.environ['CUDA_VISIBLE_DEVICES'] = str(FLAGS.gpu_c)
+    os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
     conv_1d_layer_params = [(32, 8, 4), (64, 4, 2), (64, 3, 1)]
     conv_2d_layer_params = [(32, (8, 8), 4), (64, (4, 4), 2), (64, (3, 3), 2)]
