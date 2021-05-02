@@ -35,6 +35,9 @@ from tf_agents.typing import types
 from tf_agents.utils import common
 from tf_agents.utils import nest_utils
 
+# pylint:disable=g-direct-tensorflow-import
+from tensorflow.python.eager import def_function  # TF internal
+# pylint:enable=g-direct-tensorflow-import
 
 POLICY_SPECS_PBTXT = 'policy_specs.pbtxt'
 
