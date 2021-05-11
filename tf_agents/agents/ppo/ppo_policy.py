@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2020 The TF-Agents Authors.
+# Copyright 2018 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     https://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,18 +23,21 @@ from __future__ import print_function
 from typing import Optional
 
 import gin
-import tensorflow as tf
+import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow_probability as tfp
 
 from tf_agents.agents.ppo import ppo_utils
-from tf_agents.distributions import utils as distribution_utils
 from tf_agents.networks import network
 from tf_agents.policies import actor_policy
+from tf_agents.specs import distribution_spec
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import policy_step
 from tf_agents.trajectories import time_step as ts
 from tf_agents.typing import types
-from tf_agents.utils import nest_utils
 from tf_agents.utils import tensor_normalizer
+
+
+tfd = tfp.distributions
 
 
 @gin.configurable(module='tf_agents')
@@ -52,10 +55,10 @@ class PPOPolicy(actor_policy.ActorPolicy):
   """
 
   def __init__(self,
-               time_step_spec: ts.TimeStep,
-               action_spec: types.NestedTensorSpec,
-               actor_network: network.Network,
-               value_network: network.Network,
+               time_step_spec: Optional[ts.TimeStep] = None,
+               action_spec: Optional[types.NestedTensorSpec] = None,
+               actor_network: Optional[network.Network] = None,
+               value_network: Optional[network.Network] = None,
                observation_normalizer: Optional[
                    tensor_normalizer.TensorNormalizer] = None,
                clip: bool = True,
@@ -88,61 +91,29 @@ class PPOPolicy(actor_policy.ActorPolicy):
         is enabled.
 
     Raises:
-      TypeError: if `actor_network` or `value_network` is not of type
-        `tf_agents.networks.Network`.
-      ValueError: if `actor_network` or `value_network` do not emit
-        valid outputs.  For example, `actor_network` must either be
-        a (legacy style) `DistributionNetwork`, or explicitly emit
-        a nest of `tfp.distribution.Distribution` objects.
+      ValueError: if actor_network or value_network is not of type
+        tf_agents.networks.network.Network.
     """
     if not isinstance(actor_network, network.Network):
-      raise TypeError('actor_network is not of type network.Network')
+      raise ValueError('actor_network is not of type network.Network')
     if not isinstance(value_network, network.Network):
-      raise TypeError('value_network is not of type network.Network')
-
-    actor_output_spec = actor_network.create_variables(
-        time_step_spec.observation)
-
-    value_output_spec = value_network.create_variables(
-        time_step_spec.observation)
-
-    nest_utils.assert_value_spec(
-        value_output_spec, 'value_network')
-
-    distribution_utils.assert_specs_are_compatible(
-        actor_output_spec, action_spec,
-        'actor_network output spec does not match action spec')
+      raise ValueError('value_network is not of type network.Network')
 
     self._compute_value_and_advantage_in_train = (
         compute_value_and_advantage_in_train)
 
     if collect:
+      # TODO(oars): Cleanup how we handle non distribution networks.
       if isinstance(actor_network, network.DistributionNetwork):
-        # Legacy DistributionNetwork case.  New code can just provide a regular
-        # Network that emits a Distribution object; and we use a different
-        # code path using DistributionSpecV2 for that.
         network_output_spec = actor_network.output_spec
-        info_spec = {
-            'dist_params':
-                tf.nest.map_structure(lambda spec: spec.input_params_spec,
-                                      network_output_spec)
-        }
       else:
-        # We have a Network that emits a nest of distributions.
-        def nested_dist_params(spec):
-          if not isinstance(spec, distribution_utils.DistributionSpecV2):
-            raise ValueError(
-                'Unexpected output from `actor_network`.  Expected '
-                '`Distribution` objects, but saw output spec: {}'
-                .format(actor_output_spec))
-          return distribution_utils.parameters_to_dict(
-              spec.parameters, tensors_only=True)
-
-        info_spec = {
-            'dist_params':
-                tf.nest.map_structure(nested_dist_params,
-                                      actor_output_spec)
-        }
+        network_output_spec = tf.nest.map_structure(
+            distribution_spec.deterministic_distribution_from_spec, action_spec)
+      info_spec = {
+          'dist_params':
+              tf.nest.map_structure(lambda spec: spec.input_params_spec,
+                                    network_output_spec)
+      }
 
       if not self._compute_value_and_advantage_in_train:
         info_spec['value_prediction'] = tensor_spec.TensorSpec(
@@ -169,6 +140,8 @@ class PPOPolicy(actor_policy.ActorPolicy):
         clip=clip)
 
     self._collect = collect
+    if value_network is not None:
+      value_network.create_variables()
     self._value_network = value_network
 
   def get_initial_value_state(self,
@@ -246,19 +219,22 @@ class PPOPolicy(actor_policy.ActorPolicy):
 
     new_policy_state = {'actor_network_state': (), 'value_network_state': ()}
 
-    (distributions, new_policy_state['actor_network_state']) = (
-        self._apply_actor_network(
-            time_step, policy_state['actor_network_state'], training=training))
+    def _to_distribution(action_or_distribution):
+      if isinstance(action_or_distribution, tf.Tensor):
+        # This is an action tensor, so wrap it in a deterministic distribution.
+        return tfp.distributions.Deterministic(loc=action_or_distribution)
+      return action_or_distribution
+
+    (actions_or_distributions,
+     new_policy_state['actor_network_state']) = self._apply_actor_network(
+         time_step, policy_state['actor_network_state'], training=training)
+    distributions = tf.nest.map_structure(_to_distribution,
+                                          actions_or_distributions)
 
     if self._collect:
       policy_info = {
-          'dist_params': ppo_utils.get_distribution_params(
-              distributions,
-              legacy_distribution_network=isinstance(
-                  self._actor_network,
-                  network.DistributionNetwork))
+          'dist_params': ppo_utils.get_distribution_params(distributions)
       }
-
       if not self._compute_value_and_advantage_in_train:
         # If value_prediction is not computed in agent.train it needs to be
         # computed and saved here.
@@ -275,8 +251,8 @@ class PPOPolicy(actor_policy.ActorPolicy):
         not new_policy_state['value_network_state']):
       new_policy_state = ()
     elif not new_policy_state['value_network_state']:
-      del new_policy_state['value_network_state']
+      new_policy_state.pop('value_network_state', None)
     elif not new_policy_state['actor_network_state']:
-      del new_policy_state['actor_network_state']
+      new_policy_state.pop('actor_network_state', None)
 
     return policy_step.PolicyStep(distributions, new_policy_state, policy_info)

@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2020 The TF-Agents Authors.
+# Copyright 2018 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     https://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,26 +20,23 @@ from __future__ import print_function
 
 from absl.testing import parameterized
 import numpy as np
-import tensorflow as tf
+import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 import tensorflow_probability as tfp
 
 from tf_agents.agents.ppo import ppo_policy
 from tf_agents.networks import actor_distribution_network
 from tf_agents.networks import mask_splitter_network
 from tf_agents.networks import network
-from tf_agents.networks import sequential
 from tf_agents.networks import value_network as value_net
 from tf_agents.specs import distribution_spec
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import time_step as ts
 from tf_agents.utils import test_utils
 
-tfd = tfp.distributions
-
 
 class DummyActorNet(network.Network):
 
-  def __init__(self, action_spec, emit_distribution=True, name=None):
+  def __init__(self, action_spec, name=None):
     super(DummyActorNet, self).__init__(
         tensor_spec.TensorSpec([2], tf.float32), (), 'DummyActorNet')
     self._action_spec = action_spec
@@ -48,13 +45,11 @@ class DummyActorNet(network.Network):
     self._dummy_layers = [
         tf.keras.layers.Dense(
             self._flat_action_spec.shape.num_elements(),
-            kernel_initializer=tf.constant_initializer([2, 1]),
-            bias_initializer=tf.constant_initializer([5]),
+            kernel_initializer=tf.compat.v1.initializers.constant([2, 1]),
+            bias_initializer=tf.compat.v1.initializers.constant([5]),
             activation=tf.keras.activations.tanh,
         )
     ]
-
-    self._emit_distribution = emit_distribution
 
   def call(self, inputs, step_type=None, network_state=()):
     del step_type
@@ -69,8 +64,6 @@ class DummyActorNet(network.Network):
     spec_ranges = (
         self._flat_action_spec.maximum - self._flat_action_spec.minimum) / 2.0
     action_means = spec_means + spec_ranges * means
-    if self._emit_distribution:
-      action_means = tfd.Deterministic(loc=action_means)
 
     return tf.nest.pack_sequence_as(self._action_spec,
                                     [action_means]), network_state
@@ -86,7 +79,7 @@ class DummyActorDistributionNet(network.DistributionNetwork):
         (),
         output_spec=output_spec,
         name='DummyActorDistributionNet')
-    self._action_net = DummyActorNet(action_spec, emit_distribution=False)
+    self._action_net = DummyActorNet(action_spec)
 
   def _get_normal_distribution_spec(self, sample_spec):
     input_param_shapes = tfp.distributions.Normal.param_static_shapes(
@@ -120,8 +113,8 @@ class DummyValueNet(network.Network):
     self._dummy_layers = [
         tf.keras.layers.Dense(
             1,
-            kernel_initializer=tf.constant_initializer([2, 1]),
-            bias_initializer=tf.constant_initializer([5]))
+            kernel_initializer=tf.compat.v1.initializers.constant([2, 1]),
+            bias_initializer=tf.compat.v1.initializers.constant([5]))
     ]
 
   def call(self, inputs, step_type=None, network_state=()):
@@ -130,28 +123,6 @@ class DummyValueNet(network.Network):
     for layer in self._dummy_layers:
       hidden_state = layer(hidden_state)
     return hidden_state, network_state
-
-
-def create_sequential_actor_net():
-  def create_dist(loc_and_scale):
-    # Bring my_action into [2.0, 3.0]:
-    #  (-inf, inf) -> (-1, 1) -> (-0.5, 0.5) -> (2, 3)
-    my_action = tfp.bijectors.Chain(
-        [tfp.bijectors.Shift(2.5), tfp.bijectors.Scale(0.5),
-         tfp.bijectors.Tanh()])(
-             tfd.Normal(
-                 loc=loc_and_scale[..., 0],
-                 scale=tf.math.softplus(loc_and_scale[..., 1]),
-                 validate_args=True))
-    return {
-        'my_action': my_action,
-    }
-
-  return sequential.Sequential([
-      tf.keras.layers.Dense(4),
-      tf.keras.layers.Dense(2),
-      tf.keras.layers.Lambda(create_dist)
-  ])
 
 
 def _test_cases(prefix=''):
@@ -170,7 +141,7 @@ class PPOPolicyTest(parameterized.TestCase, test_utils.TestCase):
     super(PPOPolicyTest, self).setUp()
     self._obs_spec = tensor_spec.TensorSpec([2], tf.float32)
     self._time_step_spec = ts.time_step_spec(self._obs_spec)
-    self._action_spec = tensor_spec.BoundedTensorSpec((), tf.float32, 2, 3)
+    self._action_spec = tensor_spec.BoundedTensorSpec([1], tf.float32, 2, 3)
 
   @property
   def _time_step(self):
@@ -231,7 +202,7 @@ class PPOPolicyTest(parameterized.TestCase, test_utils.TestCase):
         value_network=value_network)
 
     action_step = policy.action(self._time_step)
-    self.assertEqual(action_step.action.shape.as_list(), [1])
+    self.assertEqual(action_step.action.shape.as_list(), [1, 1])
     self.assertEqual(action_step.action.dtype, tf.float32)
     self.evaluate(tf.compat.v1.global_variables_initializer())
     actions_ = self.evaluate(action_step.action)
@@ -287,7 +258,7 @@ class PPOPolicyTest(parameterized.TestCase, test_utils.TestCase):
         value_network=value_network)
 
     action_step = policy.action(self._time_step_batch)
-    self.assertEqual(action_step.action.shape.as_list(), [2])
+    self.assertEqual(action_step.action.shape.as_list(), [2, 1])
     self.assertEqual(action_step.action.dtype, tf.float32)
     self.evaluate(tf.compat.v1.global_variables_initializer())
     actions_ = self.evaluate(action_step.action)
@@ -304,7 +275,7 @@ class PPOPolicyTest(parameterized.TestCase, test_utils.TestCase):
     )
     network_spec, _ = observation_tensor_spec
     action_tensor_spec = tensor_spec.BoundedTensorSpec(
-        [], tf.int32, 0, num_categories - 1)
+        (1,), tf.int32, 0, num_categories - 1)
 
     # Create policy with splitter.
     def splitter_fn(observation_and_mask):
@@ -336,7 +307,7 @@ class PPOPolicyTest(parameterized.TestCase, test_utils.TestCase):
     action_step = policy.action(time_step)
 
     # Check the shape and type of the resulted action step.
-    self.assertEqual(action_step.action.shape.as_list(), [2])
+    self.assertEqual(action_step.action.shape.as_list(), [2, 1])
     self.assertEqual(action_step.action.dtype, tf.int32)
     self.evaluate(tf.compat.v1.global_variables_initializer())
 
@@ -351,10 +322,10 @@ class PPOPolicyTest(parameterized.TestCase, test_utils.TestCase):
         dtype=np.float32)
     masked_actions = np.array(range(len(mask)))[~mask]
     self.assertTrue(
-        np.all(logits[:, masked_actions] == np.finfo(np.float32).min))
+        np.all(logits[:, :, masked_actions] == np.finfo(np.float32).min))
     valid_actions = np.array(range(len(mask)))[mask]
     self.assertTrue(
-        np.all(logits[:, valid_actions] > np.finfo(np.float32).min))
+        np.all(logits[:, :, valid_actions] > np.finfo(np.float32).min))
 
   @parameterized.named_parameters(*_test_cases('test_action'))
   def testValue(self, network_cls):
@@ -436,42 +407,6 @@ class PPOPolicyTest(parameterized.TestCase, test_utils.TestCase):
 
     distribution_step = policy.distribution(self._time_step)
     self.assertIsInstance(distribution_step.action, tfp.distributions.Normal)
-
-  def testNonLegacyDistribution(self):
-    if not tf.executing_eagerly():
-      self.skipTest('Skipping test: sequential networks not supported in TF1')
-
-    actor_network = create_sequential_actor_net()
-    action_spec = {'my_action': self._action_spec}
-    value_network = DummyValueNet()
-
-    policy = ppo_policy.PPOPolicy(
-        self._time_step_spec,
-        action_spec,
-        actor_network=actor_network,
-        value_network=value_network)
-
-    distribution_step = policy.distribution(self._time_step)
-    self.assertIsInstance(
-        distribution_step.action['my_action'],
-        tfp.distributions.TransformedDistribution)
-
-    expected_info_spec = {
-        'dist_params': {
-            'my_action': {
-                'bijector': {'bijectors:0': {},
-                             'bijectors:1': {},
-                             'bijectors:2': {}},
-                'distribution': {'scale': tf.TensorSpec([1], tf.float32),
-                                 'loc': tf.TensorSpec([1], tf.float32)},
-            }
-        },
-        'value_prediction': tf.TensorSpec([1, 1], tf.float32)
-    }
-
-    tf.nest.map_structure(
-        lambda v, s: self.assertEqual(tf.type_spec_from_value(v), s),
-        distribution_step.info, expected_info_spec)
 
 
 if __name__ == '__main__':

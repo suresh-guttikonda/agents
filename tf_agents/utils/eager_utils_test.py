@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2020 The TF-Agents Authors.
+# Copyright 2018 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     https://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -45,7 +45,7 @@ class Network(tf.keras.layers.Layer):
   def __init__(self, name=None):
     super(Network, self).__init__(name=name)
     self._layer = tf.keras.layers.Dense(
-        3, kernel_initializer=tf.keras.initializers.Ones(), name='logits')
+        3, kernel_initializer=tf.compat.v1.initializers.ones(), name='logits')
 
   def call(self, inputs):
     return self._layer(inputs)

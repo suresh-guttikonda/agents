@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2020 The TF-Agents Authors.
+# Copyright 2018 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     https://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -69,14 +69,14 @@ from absl import logging
 import gin
 from six.moves import range
 from six.moves import zip
-import tensorflow as tf
+import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 
-from tf_agents.agents import data_converter
 from tf_agents.agents import tf_agent
 from tf_agents.agents.ppo import ppo_policy
 from tf_agents.agents.ppo import ppo_utils
 from tf_agents.networks import network
 from tf_agents.policies import greedy_policy
+from tf_agents.specs import distribution_spec
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import time_step as ts
 from tf_agents.trajectories import trajectory
@@ -99,14 +99,9 @@ PPOLossInfo = collections.namedtuple('PPOLossInfo', (
 
 
 def _normalize_advantages(advantages, axes=(0,), variance_epsilon=1e-8):
-  adv_mean, adv_var = tf.nn.moments(advantages, axes=axes, keepdims=True)
-  normalized_advantages = tf.nn.batch_normalization(
-      advantages,
-      adv_mean,
-      adv_var,
-      offset=None,
-      scale=None,
-      variance_epsilon=variance_epsilon)
+  adv_mean, adv_var = tf.nn.moments(x=advantages, axes=axes, keepdims=True)
+  normalized_advantages = ((advantages - adv_mean) /
+                           (tf.sqrt(adv_var) + variance_epsilon))
   return normalized_advantages
 
 
@@ -237,17 +232,18 @@ class PPOAgent(tf_agent.TFAgent):
           agent = ppo_clip_agent.PPOClipAgent(
             time_step_tensor_spec, action_spec, actor_net, value_net, ...)
           ```
+          ```
       log_prob_clipping: +/- value for clipping log probs to prevent inf / NaN
         values.  Default: no clipping.
-      kl_cutoff_factor: Only meaningful when `kl_cutoff_coef > 0.0`. A
-        multiplier used for calculating the KL cutoff ( =
+      kl_cutoff_factor: Only meaningful when `kl_cutoff_coef > 0.0`. A multipler
+        used for calculating the KL cutoff ( =
         `kl_cutoff_factor * adaptive_kl_target`). If policy KL averaged across
         the batch changes more than the cutoff, a squared cutoff loss would
         be added to the loss function.
       kl_cutoff_coef: kl_cutoff_coef and kl_cutoff_factor are additional params
         if one wants to use a KL cutoff loss term in addition to the adaptive KL
         loss term. Default to 0.0 to disable the KL cutoff loss term as this was
-        not used in the paper.  kl_cutoff_coef is the coefficient to multiply by
+        not used in the paper.  kl_cutoff_coef is the coefficient to mulitply by
         the KL cutoff loss term, before adding to the total loss function.
       initial_adaptive_kl_beta: Initial value for beta coefficient of adaptive
         KL penalty. This initial value is not important in practice because the
@@ -273,11 +269,12 @@ class PPOAgent(tf_agent.TFAgent):
         collection. This argument must be set to `False` if mini batch learning
         is enabled.
       update_normalizers_in_train: A bool to indicate whether normalizers are
-        updated as parts of the `train` method. Set to `False` if mini batch
+        updated at the end of the `train` method. Set to `False` if mini batch
         learning is enabled, or if `train` is called on multiple iterations of
-        the same trajectories. In that case, you would need to use `PPOLearner`
-        (which updates all the normalizers outside of the agent). This ensures
-        that normalizers are updated in the same way as (Schulman, 2017).
+        the same trajectories. In that case, you would need to call the
+        `update_reward_normalizer` and `update_observation_normalizer` methods
+        after all iterations of the same trajectory are done. This ensures that
+        normalizers are updated in the same way as (Schulman, 2017).
       debug_summaries: A bool to gather debug summaries.
       summarize_grads_and_vars: If true, gradient summaries will be written.
       train_step_counter: An optional counter to increment every time the train
@@ -286,18 +283,17 @@ class PPOAgent(tf_agent.TFAgent):
         that name. Defaults to the class name.
 
     Raises:
-      TypeError: if `actor_net` or `value_net` is not of type
-        `tf_agents.networks.Network`.
+      ValueError: If the actor_net is not a DistributionNetwork or value_net is
+        not a Network.
     """
-    if not isinstance(actor_net, network.Network):
-      raise TypeError(
-          'actor_net must be an instance of a network.Network.')
+    if not isinstance(actor_net, network.DistributionNetwork):
+      raise ValueError(
+          'actor_net must be an instance of a network.DistributionNetwork.')
     if not isinstance(value_net, network.Network):
-      raise TypeError('value_net must be an instance of a network.Network.')
+      raise ValueError('value_net must be an instance of a network.Network.')
 
-    # PPOPolicy validates these, so we skip validation here.
-    actor_net.create_variables(time_step_spec.observation)
-    value_net.create_variables(time_step_spec.observation)
+    actor_net.create_variables()
+    value_net.create_variables()
 
     tf.Module.__init__(self, name=name)
 
@@ -326,7 +322,7 @@ class PPOAgent(tf_agent.TFAgent):
     self._check_numerics = check_numerics
     self._compute_value_and_advantage_in_train = (
         compute_value_and_advantage_in_train)
-    self.update_normalizers_in_train = update_normalizers_in_train
+    self._update_normalizers_in_train = update_normalizers_in_train
     if not isinstance(self._optimizer, tf.keras.optimizers.Optimizer):
       logging.warning(
           'Only tf.keras.optimizers.Optimiers are well supported, got a '
@@ -373,12 +369,7 @@ class PPOAgent(tf_agent.TFAgent):
             self._compute_value_and_advantage_in_train),
     )
 
-    if isinstance(self._actor_net, network.DistributionNetwork):
-      # Legacy behavior
-      self._action_distribution_spec = self._actor_net.output_spec
-    else:
-      self._action_distribution_spec = self._actor_net.create_variables(
-          time_step_spec.observation)
+    self._action_distribution_spec = (self._actor_net.output_spec)
 
     # Set training_data_spec to collect_data_spec with augmented policy info,
     # iff return and normalized advantage are saved in preprocess_sequence.
@@ -391,7 +382,7 @@ class PPOAgent(tf_agent.TFAgent):
               collect_policy.trajectory_spec.policy_info['value_prediction'],
           'return':
               tensor_spec.TensorSpec(shape=[], dtype=tf.float32),
-          'advantage':
+          'normalized_advantage':
               tensor_spec.TensorSpec(shape=[], dtype=tf.float32),
       })
       training_data_spec = collect_policy.trajectory_spec.replace(
@@ -407,13 +398,6 @@ class PPOAgent(tf_agent.TFAgent):
         debug_summaries=debug_summaries,
         summarize_grads_and_vars=summarize_grads_and_vars,
         train_step_counter=train_step_counter)
-
-    # This must be built after super() which sets up self.data_context.
-    self._collected_as_transition = data_converter.AsTransition(
-        self.collect_data_context, squeeze_time_dim=False)
-
-    self._as_trajectory = data_converter.AsTrajectory(
-        self.data_context, sequence_length=None)
 
   @property
   def actor_net(self) -> network.Network:
@@ -446,18 +430,20 @@ class PPOAgent(tf_agent.TFAgent):
     """
     # Arg value_preds was appended with final next_step value. Make tensors
     #   next_value_preds by stripping first and last elements respectively.
+    final_value_pred = value_preds[:, -1]
     value_preds = value_preds[:, :-1]
-    if self._use_gae:
+
+    if not self._use_gae:
+      with tf.name_scope('empirical_advantage'):
+        advantages = returns - value_preds
+    else:
       advantages = value_ops.generalized_advantage_estimation(
           values=value_preds,
-          final_value=value_preds[:, -1],
+          final_value=final_value_pred,
           rewards=rewards,
           discounts=discounts,
           td_lambda=self._lambda,
           time_major=False)
-    else:
-      with tf.name_scope('empirical_advantage'):
-        advantages = returns - value_preds
 
     return advantages
 
@@ -572,6 +558,9 @@ class PPOAgent(tf_agent.TFAgent):
       value_preds: types.Tensor) -> Tuple[types.Tensor, types.Tensor]:
     """Compute the Monte Carlo return and advantage.
 
+    Normalazation will be applied to the computed returns and advantages if
+    it's enabled.
+
     Args:
       next_time_steps: batched tensor of TimeStep tuples after action is taken.
       value_preds: Batched value prediction tensor. Should have one more entry
@@ -579,7 +568,7 @@ class PPOAgent(tf_agent.TFAgent):
         value prediction of the final state.
 
     Returns:
-      tuple of (return, advantage), both are batched tensors.
+      tuple of (return, normalized_advantage), both are batched tensors.
     """
     discounts = next_time_steps.discount * tf.constant(
         self._discount_factor, dtype=tf.float32)
@@ -587,11 +576,8 @@ class PPOAgent(tf_agent.TFAgent):
     rewards = next_time_steps.reward
     if self._debug_summaries:
       # Summarize rewards before they get normalized below.
-      # TODO(b/171573175): remove the condition once histograms are
-      # supported on TPUs.
-      if not tf.config.list_logical_devices('TPU'):
-        tf.compat.v2.summary.histogram(
-            name='rewards', data=rewards, step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='rewards', data=rewards, step=self.train_step_counter)
       tf.compat.v2.summary.scalar(
           name='rewards_mean',
           data=tf.reduce_mean(rewards),
@@ -602,13 +588,10 @@ class PPOAgent(tf_agent.TFAgent):
       rewards = self._reward_normalizer.normalize(
           rewards, center_mean=False, clip_value=self._reward_norm_clipping)
       if self._debug_summaries:
-        # TODO(b/171573175): remove the condition once histograms are
-        # supported on TPUs.
-        if not tf.config.list_logical_devices('TPU'):
-          tf.compat.v2.summary.histogram(
-              name='rewards_normalized',
-              data=rewards,
-              step=self.train_step_counter)
+        tf.compat.v2.summary.histogram(
+            name='rewards_normalized',
+            data=rewards,
+            step=self.train_step_counter)
         tf.compat.v2.summary.scalar(
             name='rewards_normalized_mean',
             data=tf.reduce_mean(rewards),
@@ -631,21 +614,21 @@ class PPOAgent(tf_agent.TFAgent):
         discounts,
         time_major=False,
         final_value=final_value_bootstrapped)
-    # TODO(b/171573175): remove the condition once histograms are
-    # supported on TPUs.
-    if self._debug_summaries and not tf.config.list_logical_devices('TPU'):
+    if self._debug_summaries:
       tf.compat.v2.summary.histogram(
           name='returns', data=returns, step=self.train_step_counter)
 
     # Compute advantages.
     advantages = self.compute_advantages(rewards, returns, discounts,
                                          value_preds)
-
-    # TODO(b/171573175): remove the condition once historgrams are
-    # supported on TPUs.
-    if self._debug_summaries and not tf.config.list_logical_devices('TPU'):
+    normalized_advantages = _normalize_advantages(advantages, axes=(0, 1))
+    if self._debug_summaries:
       tf.compat.v2.summary.histogram(
           name='advantages', data=advantages, step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='advantages_normalized',
+          data=normalized_advantages,
+          step=self.train_step_counter)
 
     # Return TD-Lambda returns if both use_td_lambda_return and use_gae.
     if self._use_td_lambda_return:
@@ -656,7 +639,7 @@ class PPOAgent(tf_agent.TFAgent):
         returns = tf.add(
             advantages, value_preds[:, :-1], name='td_lambda_returns')
 
-    return returns, advantages
+    return returns, normalized_advantages
 
   def _preprocess(self, experience):
     """Performs advantage calculation for the collected experience.
@@ -672,13 +655,14 @@ class PPOAgent(tf_agent.TFAgent):
     Returns:
       The processed experience which has normalized_advantages and returns
       filled in its policy info. The advantages and returns for the last
-      transition are filled with 0s as they cannot be calculated.
+      transition is filled with 0s as they cannot be calculated.
     """
-    # Try to be agnostic about the input type of experience before we call
-    # to_transition() below.
-    outer_rank = nest_utils.get_outer_rank(
-        _get_discount(experience), self.collect_data_spec.discount)
-
+    if self._compute_value_and_advantage_in_train:
+      outer_rank = nest_utils.get_outer_rank(experience,
+                                             self.training_data_spec)
+    else:
+      outer_rank = nest_utils.get_outer_rank(experience,
+                                             self.collect_data_spec)
     # Add 1 as the batch dimension for inputs that just have the time dimension,
     # as all utility functions below require the batch dimension.
     if outer_rank == 1:
@@ -687,18 +671,13 @@ class PPOAgent(tf_agent.TFAgent):
       batched_experience = experience
 
     # Get individual tensors from experience.
-    num_steps = _get_discount(batched_experience).shape[1]
+    num_steps = batched_experience.step_type.shape[1]
     if num_steps and num_steps <= 1:
       raise ValueError(
           'Experience used for advantage calculation must have >1 num_steps.')
 
-    transition = self._collected_as_transition(batched_experience)
-    time_steps, _, next_time_steps = transition
-
-    # TODO(b/170680358): Decide if we will require Trajectory for preprocess,
-    # or if we want to handle transitions here too; if so, what do we return?
-    # Below we use batched_experience assuming it's a Trajectory, and return
-    # a trajectory.
+    (time_steps, _,
+     next_time_steps) = trajectory.to_transition(batched_experience)
 
     # Compute the value predictions for states using the current value function.
     # To be used for return & advantage computation.
@@ -713,14 +692,13 @@ class PPOAgent(tf_agent.TFAgent):
       value_preds = tf.stop_gradient(value_preds)
     else:
       value_preds = batched_experience.policy_info['value_prediction']
-
     new_policy_info = {
         'dist_params': batched_experience.policy_info['dist_params'],
         'value_prediction': value_preds,
     }
 
     # Add the calculated advantage and return into the input experience.
-    returns, advantages = self.compute_return_and_advantage(
+    returns, normalized_advantages = self.compute_return_and_advantage(
         next_time_steps, value_preds)
 
     # Pad returns and normalized_advantages in the time dimension so that the
@@ -730,8 +708,8 @@ class PPOAgent(tf_agent.TFAgent):
     last_transition_padding = tf.zeros((batch_size, 1), dtype=tf.float32)
     new_policy_info['return'] = tf.concat([returns, last_transition_padding],
                                           axis=1)
-    new_policy_info['advantage'] = tf.concat(
-        [advantages, last_transition_padding], axis=1)
+    new_policy_info['normalized_advantage'] = tf.concat(
+        [normalized_advantages, last_transition_padding], axis=1)
 
     # Remove the batch dimension iff the input experience does not have it.
     if outer_rank == 1:
@@ -757,8 +735,8 @@ class PPOAgent(tf_agent.TFAgent):
     Returns:
       A post processed `Trajectory` with the same shape as the input, with
         `return` and `normalized_advantage` stored inside of the policy info
-        dictionary. The advantages and returns for the last transition are
-        filled with 0s as they cannot be calculated.
+        dictionary. The advantages and returns for the last transition is filled
+        with 0s as they cannot be calculated.
     """
     if self._compute_value_and_advantage_in_train:
       return experience
@@ -766,8 +744,6 @@ class PPOAgent(tf_agent.TFAgent):
     return self._preprocess(experience)
 
   def _train(self, experience, weights):
-    experience = self._as_trajectory(experience)
-
     if self._compute_value_and_advantage_in_train:
       processed_experience = self._preprocess(experience)
     else:
@@ -784,23 +760,16 @@ class PPOAgent(tf_agent.TFAgent):
     #   parameters.
     old_action_distribution_parameters = processed_experience.policy_info[
         'dist_params']
-
     old_actions_distribution = (
-        ppo_utils.distribution_from_spec(
-            self._action_distribution_spec,
-            old_action_distribution_parameters,
-            legacy_distribution_network=isinstance(
-                self._actor_net, network.DistributionNetwork)))
-
+        distribution_spec.nested_distributions_from_specs(
+            self._action_distribution_spec, old_action_distribution_parameters))
     # Compute log probability of actions taken during data collection, using the
     #   collect policy distribution.
     old_act_log_probs = common.log_probability(old_actions_distribution,
                                                processed_experience.action,
                                                self._action_spec)
 
-    # TODO(b/171573175): remove the condition once histograms are
-    # supported on TPUs.
-    if self._debug_summaries and not tf.config.list_logical_devices('TPU'):
+    if self._debug_summaries:
       actions_list = tf.nest.flatten(processed_experience.action)
       show_action_index = len(actions_list) != 1
       for i, single_action in enumerate(actions_list):
@@ -816,18 +785,8 @@ class PPOAgent(tf_agent.TFAgent):
         observation=processed_experience.observation)
     actions = processed_experience.action
     returns = processed_experience.policy_info['return']
-    advantages = processed_experience.policy_info['advantage']
-
-    normalized_advantages = _normalize_advantages(advantages,
-                                                  variance_epsilon=1e-8)
-
-    # TODO(b/171573175): remove the condition once histograms are
-    # supported on TPUs.
-    if self._debug_summaries and not tf.config.list_logical_devices('TPU'):
-      tf.compat.v2.summary.histogram(
-          name='advantages_normalized',
-          data=normalized_advantages,
-          step=self.train_step_counter)
+    normalized_advantages = processed_experience.policy_info[
+        'normalized_advantage']
     old_value_predictions = processed_experience.policy_info['value_prediction']
 
     batch_size = nest_utils.get_outer_shape(time_steps, self._time_step_spec)[0]
@@ -842,9 +801,6 @@ class PPOAgent(tf_agent.TFAgent):
     variables_to_train = list(
         object_identity.ObjectIdentitySet(self._actor_net.trainable_weights +
                                           self._value_net.trainable_weights))
-    # Sort to ensure tensors on different processes end up in same order.
-    variables_to_train = sorted(variables_to_train, key=lambda x: x.name)
-
     for i_epoch in range(self._num_epochs):
       with tf.name_scope('epoch_%d' % i_epoch):
         # Only save debug summaries for first and last epochs.
@@ -902,7 +858,7 @@ class PPOAgent(tf_agent.TFAgent):
           self._collect_policy.distribution(time_steps, policy_state).action)
       self.update_adaptive_kl_beta(kl_divergence)
 
-    if self.update_normalizers_in_train:
+    if self._update_normalizers_in_train:
       self.update_observation_normalizer(time_steps.observation)
       self.update_reward_normalizer(processed_experience.reward)
 
@@ -960,10 +916,7 @@ class PPOAgent(tf_agent.TFAgent):
           data=learning_rate,
           step=self.train_step_counter)
 
-    # TODO(b/171573175): remove the condition once histograms are
-    # supported on TPUs.
-    if self._summarize_grads_and_vars and not tf.config.list_logical_devices(
-        'TPU'):
+    if self._summarize_grads_and_vars:
       with tf.name_scope('Variables/'):
         all_vars = (
             self._actor_net.trainable_weights +
@@ -1028,9 +981,7 @@ class PPOAgent(tf_agent.TFAgent):
           total_l2_loss = tf.debugging.check_numerics(total_l2_loss,
                                                       'total_l2_loss')
 
-        # TODO(b/171573175): remove the condition once histograms are
-        # supported on TPUs.
-        if debug_summaries and not tf.config.list_logical_devices('TPU'):
+        if debug_summaries:
           tf.compat.v2.summary.histogram(
               name='l2_loss', data=total_l2_loss, step=self.train_step_counter)
     else:
@@ -1060,9 +1011,7 @@ class PPOAgent(tf_agent.TFAgent):
           entropy_reg_loss = tf.debugging.check_numerics(
               entropy_reg_loss, 'entropy_reg_loss')
 
-        # TODO(b/171573175): remove the condition once histograms are supported
-        # on TPUs.
-        if debug_summaries and not tf.config.list_logical_devices('TPU'):
+        if debug_summaries:
           tf.compat.v2.summary.histogram(
               name='entropy_reg_loss',
               data=entropy_reg_loss,
@@ -1105,9 +1054,7 @@ class PPOAgent(tf_agent.TFAgent):
     """
 
     observation = time_steps.observation
-    # TODO(b/171573175): remove the condition once histograms are
-    # supported on TPUs.
-    if debug_summaries and not tf.config.list_logical_devices('TPU'):
+    if debug_summaries:
       observation_list = tf.nest.flatten(observation)
       show_observation_index = len(observation_list) != 1
       for i, single_observation in enumerate(observation_list):
@@ -1157,15 +1104,12 @@ class PPOAgent(tf_agent.TFAgent):
           name='value_estimation_loss',
           data=value_estimation_loss,
           step=self.train_step_counter)
-      # TODO(b/171573175): remove the condition once histograms are supported
-      # on TPUs.
-      if not tf.config.list_logical_devices('TPU'):
-        tf.compat.v2.summary.histogram(
-            name='value_preds', data=value_preds, step=self.train_step_counter)
-        tf.compat.v2.summary.histogram(
-            name='value_estimation_error',
-            data=value_estimation_error,
-            step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='value_preds', data=value_preds, step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='value_estimation_error',
+          data=value_estimation_error,
+          step=self.train_step_counter)
 
     if self._check_numerics:
       value_estimation_loss = tf.debugging.check_numerics(
@@ -1253,69 +1197,65 @@ class PPOAgent(tf_agent.TFAgent):
             name='clip_fraction',
             data=clip_fraction,
             step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='action_log_prob',
+          data=action_log_prob,
+          step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='action_log_prob_sample',
+          data=sample_action_log_probs,
+          step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='importance_ratio',
+          data=importance_ratio,
+          step=self.train_step_counter)
       tf.compat.v2.summary.scalar(
           name='importance_ratio_mean',
           data=tf.reduce_mean(input_tensor=importance_ratio),
           step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='importance_ratio_clipped',
+          data=importance_ratio_clipped,
+          step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='per_timestep_objective',
+          data=per_timestep_objective,
+          step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='per_timestep_objective_clipped',
+          data=per_timestep_objective_clipped,
+          step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='per_timestep_objective_min',
+          data=per_timestep_objective_min,
+          step=self.train_step_counter)
       entropy = common.entropy(current_policy_distribution, self.action_spec)
+      tf.compat.v2.summary.histogram(
+          name='policy_entropy', data=entropy, step=self.train_step_counter)
       tf.compat.v2.summary.scalar(
           name='policy_entropy_mean',
           data=tf.reduce_mean(input_tensor=entropy),
           step=self.train_step_counter)
-      # TODO(b/171573175): remove the condition once histograms are supported
-      # on TPUs.
-      if not tf.config.list_logical_devices('TPU'):
-        tf.compat.v2.summary.histogram(
-            name='action_log_prob',
-            data=action_log_prob,
-            step=self.train_step_counter)
-        tf.compat.v2.summary.histogram(
-            name='action_log_prob_sample',
-            data=sample_action_log_probs,
-            step=self.train_step_counter)
-        tf.compat.v2.summary.histogram(
-            name='importance_ratio',
-            data=importance_ratio,
-            step=self.train_step_counter)
-        tf.compat.v2.summary.histogram(
-            name='importance_ratio_clipped',
-            data=importance_ratio_clipped,
-            step=self.train_step_counter)
-        tf.compat.v2.summary.histogram(
-            name='per_timestep_objective',
-            data=per_timestep_objective,
-            step=self.train_step_counter)
-        tf.compat.v2.summary.histogram(
-            name='per_timestep_objective_clipped',
-            data=per_timestep_objective_clipped,
-            step=self.train_step_counter)
-        tf.compat.v2.summary.histogram(
-            name='per_timestep_objective_min',
-            data=per_timestep_objective_min,
-            step=self.train_step_counter)
-
-        tf.compat.v2.summary.histogram(
-            name='policy_entropy', data=entropy, step=self.train_step_counter)
-        for i, (single_action, single_distribution) in enumerate(
-            zip(
-                tf.nest.flatten(self.action_spec),
-                tf.nest.flatten(current_policy_distribution))):
-          # Categorical distribution (used for discrete actions) doesn't have a
-          # mean.
-          distribution_index = '_{}'.format(i) if i > 0 else ''
-          if not tensor_spec.is_discrete(single_action):
-            tf.compat.v2.summary.histogram(
-                name='actions_distribution_mean' + distribution_index,
-                data=single_distribution.mean(),
-                step=self.train_step_counter)
-            tf.compat.v2.summary.histogram(
-                name='actions_distribution_stddev' + distribution_index,
-                data=single_distribution.stddev(),
-                step=self.train_step_counter)
-        tf.compat.v2.summary.histogram(
-            name='policy_gradient_loss',
-            data=policy_gradient_loss,
-            step=self.train_step_counter)
+      for i, (single_action, single_distribution) in enumerate(
+          zip(
+              tf.nest.flatten(self.action_spec),
+              tf.nest.flatten(current_policy_distribution))):
+        # Categorical distribution (used for discrete actions) doesn't have a
+        # mean.
+        distribution_index = '_{}'.format(i) if i > 0 else ''
+        if not tensor_spec.is_discrete(single_action):
+          tf.compat.v2.summary.histogram(
+              name='actions_distribution_mean' + distribution_index,
+              data=single_distribution.mean(),
+              step=self.train_step_counter)
+          tf.compat.v2.summary.histogram(
+              name='actions_distribution_stddev' + distribution_index,
+              data=single_distribution.stddev(),
+              step=self.train_step_counter)
+      tf.compat.v2.summary.histogram(
+          name='policy_gradient_loss',
+          data=policy_gradient_loss,
+          step=self.train_step_counter)
 
     if self._check_numerics:
       policy_gradient_loss = tf.debugging.check_numerics(
@@ -1371,10 +1311,8 @@ class PPOAgent(tf_agent.TFAgent):
         range(nest_utils.get_outer_rank(time_steps, self.time_step_spec)))
 
     old_actions_distribution = (
-        ppo_utils.distribution_from_spec(
-            self._action_distribution_spec, action_distribution_parameters,
-            legacy_distribution_network=isinstance(
-                self._actor_net, network.DistributionNetwork)))
+        distribution_spec.nested_distributions_from_specs(
+            self._action_distribution_spec, action_distribution_parameters))
 
     kl_divergence = ppo_utils.nested_kl_divergence(
         old_actions_distribution,
@@ -1416,9 +1354,7 @@ class PPOAgent(tf_agent.TFAgent):
                                         current_policy_distribution)
     kl_divergence *= weights
 
-    # TODO(b/171573175): remove the condition once histograms are supported
-    # on TPUs.
-    if debug_summaries and not tf.config.list_logical_devices('TPU'):
+    if debug_summaries:
       tf.compat.v2.summary.histogram(
           name='kl_divergence',
           data=kl_divergence,
@@ -1477,20 +1413,3 @@ class PPOAgent(tf_agent.TFAgent):
           step=self.train_step_counter)
 
     return self._adaptive_kl_beta
-
-
-def _get_discount(experience) -> types.Tensor:
-  """Try to get the discount entry from `experience`.
-
-  Typically experience is either a Trajectory or a Transition.
-
-  Args:
-    experience: Data collected from e.g. a replay buffer.
-
-  Returns:
-    discount: The discount tensor stored in `experience`.
-  """
-  if isinstance(experience, trajectory.Transition):
-    return experience.time_step.discount
-  else:
-    return experience.discount

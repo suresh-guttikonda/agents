@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2020 The TF-Agents Authors.
+# Copyright 2018 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     https://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -64,7 +64,8 @@ class TFRecordsUtilsTest(test_utils.TestCase):
       tfrecord_observer(sample)
     # Manually flush
     tfrecord_observer.flush()
-    tfrecord_observer.close()
+    # Delete should call close() function
+    del tfrecord_observer
 
   def test_load_tfrecord_dataset(self):
     # Make sure an example tfrecord file exists before attempting to load
@@ -120,7 +121,6 @@ class TFRecordsUtilsTest(test_utils.TestCase):
     initial_policy_state = policy.get_initial_state(batch_size=1)
     self.evaluate(common.function(driver.run)(time_step, initial_policy_state))
     tfrecord_observer.flush()
-    tfrecord_observer.close()
 
     dataset = example_encoding_dataset.load_tfrecord_dataset(
         [self.dataset_path], buffer_size=2, as_trajectories=True)
@@ -144,7 +144,6 @@ class TFRecordsUtilsTest(test_utils.TestCase):
     time_step = env.reset()
     driver.run(time_step)
     tfrecord_observer.flush()
-    tfrecord_observer.close()
 
     dataset = example_encoding_dataset.load_tfrecord_dataset(
         [self.dataset_path], buffer_size=2, as_trajectories=True)
@@ -176,7 +175,6 @@ class TFRecordsUtilsTest(test_utils.TestCase):
     initial_policy_state = policy.get_initial_state(batch_size=1)
     self.evaluate(common.function(driver.run)(time_step, initial_policy_state))
     tfrecord_observer.flush()
-    tfrecord_observer.close()
 
     dataset = example_encoding_dataset.load_tfrecord_dataset(
         [self.dataset_path], buffer_size=2, as_trajectories=True)

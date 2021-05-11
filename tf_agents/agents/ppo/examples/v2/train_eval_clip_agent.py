@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2020 The TF-Agents Authors.
+# Copyright 2018 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     https://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -91,7 +91,6 @@ def train_eval(
     actor_fc_layers=(200, 100),
     value_fc_layers=(200, 100),
     use_rnns=False,
-    lstm_size=(20,),
     # Params for collect
     num_environment_steps=25000000,
     collect_episodes_per_iteration=30,
@@ -148,8 +147,7 @@ def train_eval(
           tf_env.observation_spec(),
           tf_env.action_spec(),
           input_fc_layer_params=actor_fc_layers,
-          output_fc_layer_params=None,
-          lstm_size=lstm_size)
+          output_fc_layer_params=None)
       value_net = value_rnn_network.ValueRnnNetwork(
           tf_env.observation_spec(),
           input_fc_layer_params=value_fc_layers,

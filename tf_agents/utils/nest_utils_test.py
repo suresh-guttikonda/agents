@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2020 The TF-Agents Authors.
+# Copyright 2018 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     https://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,7 +21,7 @@ from __future__ import print_function
 
 import collections
 import numpy as np
-import tensorflow as tf
+import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 
 from tf_agents.specs import array_spec
 from tf_agents.specs import tensor_spec
@@ -29,12 +29,6 @@ from tf_agents.utils import nest_utils
 
 # We use this to build {Dict,Tuple,List}Wrappers for testing nesting code.
 from tensorflow.python.training.tracking import data_structures  # pylint: disable=g-direct-tensorflow-import  # TF internal
-
-
-# pylint: disable=invalid-name
-DictWrapper = data_structures.wrap_or_unwrap
-TupleWrapper = data_structures.wrap_or_unwrap
-# pylint: enable=invalid-name
 
 
 class NestedTensorsTest(tf.test.TestCase):
@@ -134,7 +128,7 @@ class NestedTensorsTest(tf.test.TestCase):
     tensor = tf.zeros([2, 3], dtype=tf.float32)
     spec = tensor_spec.TensorSpec([2, 3], dtype=tf.float32)
     batch_size = nest_utils.get_outer_shape(tensor, spec)
-    self.assertAllEqual(self.evaluate(batch_size), [])
+    self.assertEqual(self.evaluate(batch_size), [])
 
   def testGetOuterShapeOneDim(self):
     tensor = tf.zeros([5, 2, 3], dtype=tf.float32)
@@ -158,7 +152,7 @@ class NestedTensorsTest(tf.test.TestCase):
     spec = tensor_spec.TensorSpec([None, 1], dtype=tf.float32)
     tensor = tf.convert_to_tensor(value=[[0.0]] * 8)
     batch_size = self.evaluate(nest_utils.get_outer_shape(tensor, spec))
-    self.assertAllEqual(batch_size, [])
+    self.assertEqual(batch_size, [])
 
   def testGetOuterDimsSingleTensorUnbatched(self):
     tensor = tf.zeros([2, 3], dtype=tf.float32)
@@ -766,7 +760,6 @@ class PruneExtraKeysTest(tf.test.TestCase):
 
   def testPruneExtraKeys(self):
     self.assertEqual(nest_utils.prune_extra_keys({}, {'a': 1}), {})
-    self.assertEqual(nest_utils.prune_extra_keys((), {'a': 1}), ())
     self.assertEqual(nest_utils.prune_extra_keys(
         {'a': 1}, {'a': 'a'}), {'a': 'a'})
     self.assertEqual(
@@ -775,27 +768,12 @@ class PruneExtraKeysTest(tf.test.TestCase):
         nest_utils.prune_extra_keys([{'a': 1}], [{'a': 'a', 'b': 2}]),
         [{'a': 'a'}])
     self.assertEqual(
-        nest_utils.prune_extra_keys({'a': (), 'b': None}, {'a': 1, 'b': 2}),
-        {'a': (), 'b': 2})
-    self.assertEqual(
         nest_utils.prune_extra_keys(
             {'a': {'aa': 1, 'ab': 2}, 'b': {'ba': 1}},
             {'a': {'aa': 'aa', 'ab': 'ab', 'ac': 'ac'},
              'b': {'ba': 'ba', 'bb': 'bb'},
              'c': 'c'}),
         {'a': {'aa': 'aa', 'ab': 'ab'}, 'b': {'ba': 'ba'}})
-
-    self.assertEqual(
-        nest_utils.prune_extra_keys(
-            {'a': ()},
-            DictWrapper({'a': DictWrapper({'b': None})})),
-        {'a': ()})
-
-    self.assertEqual(
-        nest_utils.prune_extra_keys(
-            {'a': 1, 'c': 2},
-            DictWrapper({'a': DictWrapper({'b': None})})),
-        {'a': {'b': None}})
 
   def testInvalidWide(self):
     self.assertEqual(nest_utils.prune_extra_keys(None, {'a': 1}), {'a': 1})
@@ -821,6 +799,11 @@ class PruneExtraKeysTest(tf.test.TestCase):
 
     class A(collections.namedtuple('A', ('a', 'b'))):
       pass
+
+    # pylint: disable=invalid-name
+    DictWrapper = data_structures.wrap_or_unwrap
+    TupleWrapper = data_structures.wrap_or_unwrap
+    # pylint: enable=invalid-name
 
     self.assertEqual(
         nest_utils.prune_extra_keys(
@@ -866,7 +849,6 @@ class TileBatchTest(tf.test.TestCase):
         [[1., 2., 3.], [1., 2., 3.], [4., 5., 6.], [4., 5., 6.]])
     self.assertAllEqual(
         self.evaluate(expected_t_tile_batched), self.evaluate(t_tile_batched))
-    self.assertAllEqual((4, 3), t_tile_batched.shape)
 
 
 if __name__ == '__main__':

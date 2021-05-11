@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2020 The TF-Agents Authors.
+# Copyright 2018 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     https://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,7 +18,6 @@
 
 from __future__ import absolute_import
 from __future__ import division
-# Using Type Annotations.
 from __future__ import print_function
 
 from absl import flags
@@ -36,7 +35,6 @@ from tf_agents.environments import random_tf_environment
 from tf_agents.networks import actor_distribution_network
 from tf_agents.networks import actor_distribution_rnn_network
 from tf_agents.networks import network
-from tf_agents.networks import sequential
 from tf_agents.networks import utils as network_utils
 from tf_agents.networks import value_network
 from tf_agents.networks import value_rnn_network
@@ -69,15 +67,14 @@ class DummyActorNet(network.DistributionNetwork):
     self._dummy_layers = (preprocessing_layers or []) + [
         tf.keras.layers.Dense(
             self._flat_action_spec.shape.num_elements() * 2,
-            kernel_initializer=tf.constant_initializer([[2.0, 1.0], [1.0, 1.0]
-                                                       ]),
-            bias_initializer=tf.constant_initializer([5.0, 5.0]),
+            kernel_initializer=tf.compat.v1.initializers.constant([[2.0, 1.0],
+                                                                   [1.0, 1.0]]),
+            bias_initializer=tf.compat.v1.initializers.constant([5.0, 5.0]),
             activation=None,
         )
     ]
 
   def _get_normal_distribution_spec(self, sample_spec):
-    is_multivariate = sample_spec.shape.ndims > 0
     input_param_shapes = tfp.distributions.Normal.param_static_shapes(
         sample_spec.shape)
     input_param_spec = tf.nest.map_structure(
@@ -86,29 +83,15 @@ class DummyActorNet(network.DistributionNetwork):
             dtype=sample_spec.dtype),
         input_param_shapes)
 
-    def distribution_builder(*args, **kwargs):
-      if is_multivariate:
-        # For backwards compatibility, and because MVNDiag does not support
-        # `param_static_shapes`, even when using MVNDiag the spec
-        # continues to use the terms 'loc' and 'scale'.  Here we have to massage
-        # the construction to use 'scale' for kwarg 'scale_diag'.  Since they
-        # have the same shape and dtype expectationts, this is okay.
-        kwargs = kwargs.copy()
-        kwargs['scale_diag'] = kwargs['scale']
-        del kwargs['scale']
-        return tfp.distributions.MultivariateNormalDiag(*args, **kwargs)
-      else:
-        return tfp.distributions.Normal(*args, **kwargs)
-
     return distribution_spec.DistributionSpec(
-        distribution_builder, input_param_spec, sample_spec=sample_spec)
+        tfp.distributions.Normal, input_param_spec, sample_spec=sample_spec)
 
   def call(self, inputs, step_type=None, network_state=()):
     del step_type
     hidden_state = tf.cast(tf.nest.flatten(inputs), tf.float32)[0]
 
-    # Calls coming from agent.train() have a time dimension. Direct loss calls
-    # may not have a time dimension. In order to make BatchSquash work, we need
+    # Calls coming from agent.train() has a time dimension. Direct loss calls
+    # may not have a time dimension. It order to make BatchSquash work, we need
     # to specify the outer dimension properly.
     has_time_dim = nest_utils.get_outer_rank(inputs,
                                              self.input_tensor_spec) == 2
@@ -129,25 +112,6 @@ class DummyActorNet(network.DistributionNetwork):
         loc=actions, scale=stdevs), network_state
 
 
-def create_sequential_actor_net(ndims: int):
-  def create_dist(loc_and_scale):
-    return {
-        'my_action': tfp.bijectors.Tanh()(
-            tfp.distributions.MultivariateNormalDiag(
-                loc=loc_and_scale[..., :ndims],
-                scale_diag=0.01 + tf.math.softplus(loc_and_scale[..., ndims:]),
-                validate_args=True,
-                name='my_action_normal',
-            ))
-    }
-
-  return sequential.Sequential([
-      tf.keras.layers.Dense(4),
-      tf.keras.layers.Dense(ndims * 2),
-      tf.keras.layers.Lambda(create_dist)
-  ])
-
-
 class DummyValueNet(network.Network):
 
   def __init__(self,
@@ -160,8 +124,8 @@ class DummyValueNet(network.Network):
     self._dummy_layers = (preprocessing_layers or []) + [
         tf.keras.layers.Dense(
             1,
-            kernel_initializer=tf.constant_initializer([2, 1]),
-            bias_initializer=tf.constant_initializer([5]))
+            kernel_initializer=tf.compat.v1.initializers.constant([2, 1]),
+            bias_initializer=tf.compat.v1.initializers.constant([5]))
     ]
 
   def call(self, inputs, step_type=None, network_state=()):
@@ -188,8 +152,9 @@ def _create_joint_actor_value_networks(observation_spec, action_spec):
   shared_layers = [
       tf.keras.layers.Dense(
           tf.nest.flatten(observation_spec)[0].shape.num_elements(),
-          kernel_initializer=tf.constant_initializer([[3.0, 1.0], [1.0, 1.0]]),
-          bias_initializer=tf.constant_initializer([5.0, 5.0]),
+          kernel_initializer=tf.compat.v1.initializers.constant([[3.0, 1.0],
+                                                                 [1.0, 1.0]]),
+          bias_initializer=tf.compat.v1.initializers.constant([5.0, 5.0]),
           activation=None,
       )
   ]
@@ -333,12 +298,11 @@ class PPOAgentTest(parameterized.TestCase, test_utils.TestCase):
           compute_value_and_advantage_in_train=False,
           train_step_counter=counter)
       agent.initialize()
-    observations = tf.constant(
-        [
-            [[1, 2], [3, 4], [5, 6]],
-            [[1, 2], [3, 4], [5, 6]],
-        ],
-        dtype=tf.float32)
+    observations = tf.constant([
+        [[1, 2], [3, 4], [5, 6]],
+        [[1, 2], [3, 4], [5, 6]],
+    ],
+                               dtype=tf.float32)
 
     mid_time_step_val = ts.StepType.MID.tolist()
     time_steps = ts.TimeStep(
@@ -379,7 +343,7 @@ class PPOAgentTest(parameterized.TestCase, test_utils.TestCase):
     expected_value_preds = tf.constant([[9., 15., 21.], [9., 15., 21.]],
                                        dtype=tf.float32)
     (_, _, next_time_steps) = trajectory.to_transition(experience)
-    expected_returns, expected_advantages = agent.compute_return_and_advantage(
+    expected_returns, expected_normalized_advantages = agent.compute_return_and_advantage(
         next_time_steps, expected_value_preds)
     self.assertAllClose(old_action_distribution_parameters,
                         returned_experience.policy_info['dist_params'])
@@ -387,10 +351,12 @@ class PPOAgentTest(parameterized.TestCase, test_utils.TestCase):
                      returned_experience.policy_info['return'].shape)
     self.assertAllClose(expected_returns,
                         returned_experience.policy_info['return'][:, :-1])
-    self.assertEqual((batch_size, n_time_steps),
-                     returned_experience.policy_info['advantage'].shape)
-    self.assertAllClose(expected_advantages,
-                        returned_experience.policy_info['advantage'][:, :-1])
+    self.assertEqual(
+        (batch_size, n_time_steps),
+        returned_experience.policy_info['normalized_advantage'].shape)
+    self.assertAllClose(
+        expected_normalized_advantages,
+        returned_experience.policy_info['normalized_advantage'][:, :-1])
 
   @parameterized.named_parameters(('Default', _default),
                                   ('OneDevice', _one_device),
@@ -453,10 +419,11 @@ class PPOAgentTest(parameterized.TestCase, test_utils.TestCase):
                      returned_experience.policy_info['return'].shape)
     self.assertAllClose([40.4821, 30.79],
                         returned_experience.policy_info['return'][:-1])
-    self.assertEqual(n_time_steps,
-                     returned_experience.policy_info['advantage'].shape)
-    self.assertAllClose([31.482101, 15.790001],
-                        returned_experience.policy_info['advantage'][:-1])
+    self.assertEqual(
+        n_time_steps,
+        returned_experience.policy_info['normalized_advantage'].shape)
+    self.assertAllClose(
+        [1., -1.], returned_experience.policy_info['normalized_advantage'][:-1])
 
   @parameterized.named_parameters(
       ('DefaultOneEpochValueInTrain', _default, 1, True, True),
@@ -486,16 +453,14 @@ class PPOAgentTest(parameterized.TestCase, test_utils.TestCase):
           num_epochs=num_epochs,
           use_gae=use_td_lambda_return,
           use_td_lambda_return=use_td_lambda_return,
-          compute_value_and_advantage_in_train=(
-              compute_value_and_advantage_in_train),
+          compute_value_and_advantage_in_train=compute_value_and_advantage_in_train,
           train_step_counter=counter)
       agent.initialize()
-    observations = tf.constant(
-        [
-            [[1, 2], [3, 4], [5, 6]],
-            [[1, 2], [3, 4], [5, 6]],
-        ],
-        dtype=tf.float32)
+    observations = tf.constant([
+        [[1, 2], [3, 4], [5, 6]],
+        [[1, 2], [3, 4], [5, 6]],
+    ],
+                               dtype=tf.float32)
 
     mid_time_step_val = ts.StepType.MID.tolist()
     time_steps = ts.TimeStep(
@@ -854,8 +819,8 @@ class PPOAgentTest(parameterized.TestCase, test_utils.TestCase):
     observations = tf.constant([[1, 2], [3, 4]], dtype=tf.float32)
     time_steps = ts.restart(observations, batch_size=2)
     action_distribution_parameters = {
-        'loc': tf.constant([[1.0], [1.0]], dtype=tf.float32),
-        'scale': tf.constant([[1.0], [1.0]], dtype=tf.float32),
+        'loc': tf.constant([1.0, 1.0], dtype=tf.float32),
+        'scale': tf.constant([1.0, 1.0], dtype=tf.float32),
     }
     current_policy_distribution, unused_network_state = DummyActorNet(
         self._obs_spec, self._action_spec)(time_steps.observation,
@@ -1007,6 +972,17 @@ class PPOAgentTest(parameterized.TestCase, test_utils.TestCase):
     self.evaluate(tf.compat.v1.global_variables_initializer())
     _ = self.evaluate(actions)
 
+  def testNormalizeAdvantages(self):
+    advantages = np.array([1.1, 3.2, -1.5, 10.9, 5.6])
+    mean = np.sum(advantages) / float(len(advantages))
+    variance = np.sum(np.square(advantages - mean)) / float(len(advantages))
+    stdev = np.sqrt(variance)
+    expected_advantages = (advantages - mean) / stdev
+    normalized_advantages = ppo_agent._normalize_advantages(
+        tf.constant(advantages, dtype=tf.float32), variance_epsilon=0.0)
+    self.assertAllClose(expected_advantages,
+                        self.evaluate(normalized_advantages))
+
   def testRNNTrain(self):
     actor_net = actor_distribution_rnn_network.ActorDistributionRnnNetwork(
         self._time_step_spec.observation,
@@ -1083,12 +1059,11 @@ class PPOAgentTest(parameterized.TestCase, test_utils.TestCase):
         train_step_counter=counter,
         compute_value_and_advantage_in_train=compute_value_and_advantage_in_train
     )
-    observations = tf.constant(
-        [
-            [[1, 2], [3, 4], [5, 6]],
-            [[1, 2], [3, 4], [5, 6]],
-        ],
-        dtype=tf.float32)
+    observations = tf.constant([
+        [[1, 2], [3, 4], [5, 6]],
+        [[1, 2], [3, 4], [5, 6]],
+    ],
+                               dtype=tf.float32)
 
     mid_time_step_val = ts.StepType.MID.tolist()
     time_steps = ts.TimeStep(
@@ -1177,12 +1152,11 @@ class PPOAgentTest(parameterized.TestCase, test_utils.TestCase):
         compute_value_and_advantage_in_train=False,
         debug_summaries=True)
 
-    observations = tf.constant(
-        [
-            [[1, 2], [3, 4], [5, 6]],
-            [[1, 2], [3, 4], [5, 6]],
-        ],
-        dtype=tf.float32)
+    observations = tf.constant([
+        [[1, 2], [3, 4], [5, 6]],
+        [[1, 2], [3, 4], [5, 6]],
+    ],
+                               dtype=tf.float32)
 
     observations = (observations, observations, {
         'a': observations,
@@ -1225,101 +1199,6 @@ class PPOAgentTest(parameterized.TestCase, test_utils.TestCase):
 
     agent.train(experience)
 
-  @parameterized.named_parameters(('FeedTrajectory', False),
-                                  ('FeedTransition', True))
-  def testTrainWithNonLegacyActorNetwork(self, feed_transition):
-    if not tf.executing_eagerly():
-      self.skipTest('Skipping test: sequential networks not supported in TF1')
-
-    num_epochs = 5
-    counter = common.create_variable('test_train_counter')
-    action_spec = {
-        'my_action': tensor_spec.BoundedTensorSpec([1], tf.float32, -1, 1)
-    }
-
-    agent = ppo_agent.PPOAgent(
-        self._time_step_spec,
-        action_spec,
-        tf.compat.v1.train.AdamOptimizer(),
-        # action_spec == TensorSpec([1], tf.float32)
-        actor_net=create_sequential_actor_net(ndims=1),
-        value_net=DummyValueNet(self._obs_spec),
-        normalize_observations=False,
-        num_epochs=num_epochs,
-        initial_adaptive_kl_beta=1.0,
-        adaptive_kl_target=10.0,
-        adaptive_kl_tolerance=0.5,
-        check_numerics=True,
-        compute_value_and_advantage_in_train=False,
-        train_step_counter=counter)
-    agent.initialize()
-
-    experience = _create_experience_trajectory_my_action()
-    experience = agent._preprocess(experience)
-
-    if feed_transition:
-      experience = trajectory.to_transition(experience)
-
-    loss = lambda: agent.train(experience)
-
-    # Assert that counter starts out at zero.
-    self.evaluate(tf.compat.v1.initialize_all_variables())
-    self.assertEqual(0, self.evaluate(counter))
-    loss_type = self.evaluate(loss)
-    loss_numpy = loss_type.loss
-
-    # Assert that loss is not zero as we are training in a non-episodic env.
-    self.assertNotEqual(
-        loss_numpy,
-        0.0,
-        msg=('Loss is exactly zero, looks like no training '
-             'was performed due to incomplete episodes.'))
-
-    # Assert that train_op ran increment_counter num_epochs times.
-    self.assertEqual(num_epochs, self.evaluate(counter))
-
-
-def _create_experience_trajectory_my_action() -> trajectory.Trajectory:
-  observations = tf.constant(
-      [
-          [[1, 2], [3, 4], [5, 6]],
-          [[1, 2], [3, 4], [5, 6]],
-      ],
-      dtype=tf.float32)
-
-  mid_time_step_val = ts.StepType.MID.tolist()
-  time_steps = ts.TimeStep(
-      step_type=tf.constant([[mid_time_step_val] * 3] * 2, dtype=tf.int32),
-      reward=tf.constant([[1] * 3] * 2, dtype=tf.float32),
-      discount=tf.constant([[1] * 3] * 2, dtype=tf.float32),
-      observation=observations)
-  actions = {
-      'my_action':
-          tf.constant([[[0.1], [0.9], [0.1]], [[0.9], [0.1], [0.9]]],
-                      dtype=tf.float32)
-  }
-
-  action_distribution_parameters = {
-      'my_action': {
-          'bijector': {},
-          'distribution': {
-              'loc': tf.constant([[[0.0]] * 3] * 2, dtype=tf.float32),
-              'scale_diag': tf.constant([[[1.0]] * 3] * 2, dtype=tf.float32)
-          }
-      }
-  }
-  value_preds = tf.constant([[0.9, 1.5, 2.1], [0.9, 1.5, 2.1]],
-                            dtype=tf.float32)
-
-  policy_info = {
-      'dist_params': action_distribution_parameters,
-  }
-  policy_info['value_prediction'] = value_preds
-  experience = trajectory.Trajectory(time_steps.step_type, observations,
-                                     actions, policy_info,
-                                     time_steps.step_type, time_steps.reward,
-                                     time_steps.discount)
-  return experience
 
 if __name__ == '__main__':
   tf.test.main()
