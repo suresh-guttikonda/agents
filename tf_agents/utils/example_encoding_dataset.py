@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,6 +18,8 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import os
 
 from absl import logging
 
@@ -98,7 +100,12 @@ class TFRecordObserver(object):
     return within a `tf.group` operation.
   """
 
-  def __init__(self, output_path, tensor_data_spec, py_mode=False):
+  def __init__(self,
+               output_path,
+               tensor_data_spec,
+               py_mode=False,
+               compress_image=False,
+               image_quality=95):
     """Creates observer object.
 
     Args:
@@ -106,6 +113,10 @@ class TFRecordObserver(object):
       tensor_data_spec: Nested list/tuple or dict of TensorSpecs, describing the
         shape of the non-batched Tensors.
       py_mode: Whether the observer is being used in a py_driver.
+      compress_image: Whether to compress image. It is assumed that any uint8
+        tensor of rank 3 with shape (w,h,c) is an image.
+      image_quality: An optional int. Defaults to 95. Quality of the compression
+        from 0 to 100 (higher is better and slower).
 
     Raises:
       ValueError: if the tensors and specs have incompatible dimensions or
@@ -114,9 +125,12 @@ class TFRecordObserver(object):
     self._py_mode = py_mode
     self._array_data_spec = tensor_spec.to_nest_array_spec(tensor_data_spec)
     self._encoder = example_encoding.get_example_serializer(
-        self._array_data_spec)
+        self._array_data_spec,
+        compress_image=compress_image,
+        image_quality=image_quality)
     # Two output files: a tfrecord file and a file with the serialized spec
     self.output_path = output_path
+    tf.io.gfile.makedirs(os.path.dirname(self.output_path))
     self._writer = tf.io.TFRecordWriter(self.output_path)
     logging.info('Writing dataset to TFRecord at %s', self.output_path)
     # Save the tensor spec used to write the dataset to file
@@ -145,9 +159,6 @@ class TFRecordObserver(object):
     self._writer.close()
     logging.info('Closing TFRecord file at %s', self.output_path)
 
-  def __del__(self):
-    self.close()
-
   def __call__(self, data):
     """If not in py_mode Wraps write() into a TF op for eager execution."""
     if self._py_mode:
@@ -157,8 +168,14 @@ class TFRecordObserver(object):
       tf.numpy_function(self.write, flat_data, [], name='encoder_observer')
 
 
-def load_tfrecord_dataset(dataset_files, buffer_size=1000, as_experience=False,
-                          as_trajectories=False, add_batch_dim=True):
+def load_tfrecord_dataset(dataset_files,
+                          buffer_size=1000,
+                          as_experience=False,
+                          as_trajectories=False,
+                          add_batch_dim=True,
+                          decoder=None,
+                          num_parallel_reads=None,
+                          compress_image=False):
   """Loads a TFRecord dataset from file, sequencing samples as Trajectories.
 
   Args:
@@ -174,6 +191,13 @@ def load_tfrecord_dataset(dataset_files, buffer_size=1000, as_experience=False,
     add_batch_dim: (bool) If True the data will have a batch dim of 1 to conform
       with the expected tensor batch convention. Set to false if you want to
       batch the data on your own.
+    decoder: Optional, a custom decoder to use rather than using the default
+      spec path.
+    num_parallel_reads: Optional, number of parallel reads in the TFRecord
+      dataset. If not specified, len(dataset_files) will be used.
+    compress_image: Whether to decompress image. It is assumed that any uint8
+      tensor of rank 3 with shape (w,h,c) is an image.
+      If the tensor was compressed in the encoder, it needs to be decompressed.
 
   Returns:
     A dataset of type tf.data.Dataset. Samples follow the dataset's spec nested
@@ -183,19 +207,23 @@ def load_tfrecord_dataset(dataset_files, buffer_size=1000, as_experience=False,
     IOError: One or more of the dataset files does not exist.
   """
 
-  specs = []
-  for dataset_file in dataset_files:
-    spec_path = dataset_file + _SPEC_FILE_EXTENSION
-    dataset_spec = parse_encoded_spec_from_file(spec_path)
-    specs.append(dataset_spec)
-    if not all([dataset_spec == spec for spec in specs]):
-      raise IOError('One or more of the encoding specs do not match.')
-  decoder = example_encoding.get_example_decoder(specs[0])
+  if not decoder:
+    specs = []
+    for dataset_file in dataset_files:
+      spec_path = dataset_file + _SPEC_FILE_EXTENSION
+      dataset_spec = parse_encoded_spec_from_file(spec_path)
+      specs.append(dataset_spec)
+      if not all([dataset_spec == spec for spec in specs]):
+        raise IOError('One or more of the encoding specs do not match.')
+    decoder = example_encoding.get_example_decoder(
+        specs[0], compress_image=compress_image)
   logging.info('Loading TFRecord dataset...')
+  if not num_parallel_reads:
+    num_parallel_reads = len(dataset_files)
   dataset = tf.data.TFRecordDataset(
       dataset_files,
       buffer_size=buffer_size,
-      num_parallel_reads=len(dataset_files))
+      num_parallel_reads=num_parallel_reads)
 
   def decode_fn(proto):
     """Decodes a proto object."""
@@ -207,7 +235,7 @@ def load_tfrecord_dataset(dataset_files, buffer_size=1000, as_experience=False,
     return nest_utils.batch_nested_tensors(sample)
 
   if as_experience:
-    dataset = dataset.map(decode_fn).batch(2)
+    dataset = dataset.map(decode_fn).batch(2, drop_remainder=True)
   elif add_batch_dim:
     dataset = dataset.map(decode_and_batch_fn)
   else:
@@ -217,4 +245,3 @@ def load_tfrecord_dataset(dataset_files, buffer_size=1000, as_experience=False,
     as_trajectories_fn = lambda sample: trajectory.Trajectory(*sample)
     dataset = dataset.map(as_trajectories_fn)
   return dataset
-

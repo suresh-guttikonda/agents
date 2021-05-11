@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -77,15 +77,36 @@ class PPOUtilsTest(parameterized.TestCase, tf.test.TestCase):
     kl_divergence_ = self.evaluate(kl_divergence)
     self.assertAllClose(expected_kl_divergence, kl_divergence_)
 
-  def test_get_distribution_params(self):
-    ones = tf.ones(shape=[2], dtype=tf.float32)
+    # test for distributions with different shapes
+    one_reshaped = tf.constant([[1.0]] * 3, dtype=tf.float32)
+    dist_neg_one_reshaped = tfp.distributions.Normal(
+        loc=-one_reshaped, scale=one_reshaped)
+    dist_one_reshaped = tfp.distributions.Normal(
+        loc=one_reshaped, scale=one_reshaped)
+
+    nested_dist1 = [dist_zero, [dist_neg_one_reshaped, dist_one]]
+    nested_dist2 = [dist_one, [dist_one_reshaped, dist_zero]]
+    kl_divergence = ppo_utils.nested_kl_divergence(
+        nested_dist1, nested_dist2)
+    expected_kl_divergence = 3 * 3.0  # 3 * (0.5 + (2.0 + 0.5))
+
+    kl_divergence_ = self.evaluate(kl_divergence)
+    self.assertAllClose(expected_kl_divergence, kl_divergence_)
+
+  @parameterized.named_parameters(
+      ('NoLegacyDistributionNetwork', False),
+      ('WithLegacyDistributionNetwork', True))
+  def test_get_distribution_params(self, legacy_distribution_network):
+    ones = tf.Variable(tf.ones(shape=[2], dtype=tf.float32))
     distribution = (tfp.distributions.Categorical(logits=ones),
                     tfp.distributions.Normal(ones, ones))
-    params = ppo_utils.get_distribution_params(distribution)
-    self.assertAllEqual([set(['logits']), set(['loc', 'scale'])],
-                        [set(d.keys()) for d in params])
+    params = ppo_utils.get_distribution_params(
+        distribution, legacy_distribution_network)
+
+    self.assertEqual([set(['logits']), set(['loc', 'scale'])],
+                     [set(d.keys()) for d in params])  # pytype: disable=attribute-error
     self.assertAllEqual([[[2]], [[2], [2]]],
-                        [[d[k].shape.as_list() for k in d] for d in params])
+                        [[d[k].shape.as_list() for k in d] for d in params])  # pytype: disable=attribute-error
 
   def test_get_learning_rate(self):
     optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=0.1)
