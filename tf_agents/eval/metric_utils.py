@@ -121,6 +121,7 @@ def compute_summaries(metrics,
 # TODO(b/130250285): Match compute and compute_summaries signatures.
 @gin.configurable
 def eager_compute(metrics,
+                  info_metrics,
                   environment,
                   policy,
                   num_episodes=1,
@@ -137,6 +138,7 @@ def eager_compute(metrics,
 
   Args:
     metrics: List of metrics to compute.
+    info_metrics: List of additional env step info metrics to compute.
     environment: tf_environment instance.
     policy: tf_policy instance used to step the environment.
     num_episodes: Number of episodes to compute the metrics over.
@@ -148,27 +150,29 @@ def eager_compute(metrics,
   Returns:
     A dictionary of results {metric_name: metric_value}
   """
-  for metric in metrics:
+  for metric in metrics+info_metrics:
     metric.reset()
 
   time_step = environment.reset()
   policy_state = policy.get_initial_state(environment.batch_size)
 
+  # HACK uste transition_observers for env.step info metrics
   driver = dynamic_episode_driver.DynamicEpisodeDriver(
       environment,
       policy,
       observers=metrics,
+      transition_observers=info_metrics,
       num_episodes=num_episodes)
   if use_function:
     common.function(driver.run)(time_step, policy_state)
   else:
     driver.run(time_step, policy_state)
 
-  results = [(metric.name, metric.result()) for metric in metrics]
+  results = [(metric.name, metric.result()) for metric in metrics+info_metrics]
   # TODO(b/120301678) remove the summaries and merge with compute
   if train_step is not None and summary_writer:
     with summary_writer.as_default():
-      for m in metrics:
+      for m in metrics+info_metrics:
         tag = common.join_scope(summary_prefix, m.name)
         tf.compat.v2.summary.scalar(name=tag, data=m.result(), step=train_step)
   # TODO(b/130249101): Add an option to log metrics.
