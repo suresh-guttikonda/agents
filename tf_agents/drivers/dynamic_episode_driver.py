@@ -129,6 +129,11 @@ class DynamicEpisodeDriver(driver.Driver):
       # in parallel.
       with tf.control_dependencies(tf.nest.flatten([time_step])):
         next_time_step = self.env.step(action_step.action)
+        info = self.env.get_info()
+        
+        # HACK: handle corner scenario
+        if not isinstance(info, dict):
+          info = {}
 
       policy_state = action_step.state
 
@@ -142,8 +147,9 @@ class DynamicEpisodeDriver(driver.Driver):
 
       traj = trajectory.from_transition(time_step, action_step, next_time_step)
       observer_ops = [observer(traj) for observer in self._observers]
+      # HACK: also include info
       transition_observer_ops = [
-          observer((time_step, action_step, next_time_step))
+          observer((time_step, action_step, next_time_step, info))
           for observer in self._transition_observers
       ]
       with tf.control_dependencies(
